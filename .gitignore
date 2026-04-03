@@ -1,0 +1,26 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files
+.env
+
+# Node modules (if ever used later)
+node_modules/
+
+# VS Code
+.vscode/
+
+# Mac
+.AppleDouble
+.LSOverride
+
+# Windows
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.swp

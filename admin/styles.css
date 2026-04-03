@@ -1,0 +1,40 @@
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  display: inline-block; line-height: 1;
+}
+body { background-color: #131313; color: #e5e2e1; }
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: #131313; }
+::-webkit-scrollbar-thumb { background: #4d4635; border-radius: 10px; }
+/* View switching */
+.view-section { display: none; }
+.view-section.active { display: block; }
+/* Sidebar nav active */
+.nav-link.active { color: #f2ca50; background: rgba(212,175,55,0.1); font-weight: 700; }
+/* Toast */
+@keyframes slideInRight { from { transform: translateX(120%); opacity:0; } to { transform: translateX(0); opacity:1; } }
+@keyframes slideOutRight { from { transform: translateX(0); opacity:1; } to { transform: translateX(120%); opacity:0; } }
+.toast-in { animation: slideInRight 0.35s ease forwards; }
+.toast-out { animation: slideOutRight 0.35s ease forwards; }
+/* Skeleton */
+@keyframes shimmer { 0%{background-position:-800px 0} 100%{background-position:800px 0} }
+.skeleton { background: linear-gradient(90deg,#1c1b1b 25%,#2a2a2a 50%,#1c1b1b 75%); background-size:800px 100%; animation:shimmer 1.5s infinite; border-radius:4px; }
+/* Row expand */
+.expanded-row { display: none; }
+.expanded-row.open { display: table-row; }
+/* Mobile bottom nav */
+@media (max-width: 767px) {
+  #sidebar { transform: translateX(-100%); }
+  #main-content { margin-left: 0 !important; }
+  #top-bar { left: 0 !important; width: 100% !important; }
+  #bottom-nav { display: flex; }
+}
+#bottom-nav { display: none; }
+/* Status badge colors */
+.badge-pending  { background:rgba(212,175,55,0.12); color:#f2ca50; }
+.badge-delivered { background:rgba(90,138,106,0.15); color:#7ec99a; }
+.badge-cancelled { background:rgba(255,180,171,0.12); color:#ffb4ab; }
+/* Status select colors */
+select.status-sel-pending { background:rgba(212,175,55,0.12); color:#f2ca50; }
+select.status-sel-delivered { background:rgba(90,138,106,0.15); color:#7ec99a; }
+select.status-sel-cancelled { background:rgba(255,180,171,0.12); color:#ffb4ab; }

@@ -1,0 +1,25 @@
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.text-glow { text-shadow: 0 0 30px rgba(242, 202, 80, 0.35); }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.cart-drawer-open #cart-overlay { opacity: 1; pointer-events: all; }
+.cart-drawer-open #cart-aside { transform: translateX(0); }
+/* Toast animations */
+@keyframes slideInRight { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes slideOutRight { from { transform: translateX(0); opacity: 1; } to { transform: translateX(120%); opacity: 0; } }
+.toast-in { animation: slideInRight 0.35s ease forwards; }
+.toast-out { animation: slideOutRight 0.35s ease forwards; }
+/* Badge pulse */
+@keyframes badgePulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.4); } }
+.badge-pulse { animation: badgePulse 0.3s ease; }
+/* Success checkmark */
+@keyframes checkDraw { to { stroke-dashoffset: 0; } }
+.check-draw { stroke-dasharray: 60; stroke-dashoffset: 60; animation: checkDraw 0.6s ease 0.3s forwards; }
+/* Input focus gold border */
+input:focus, textarea:focus { outline: none; box-shadow: 0 0 0 2px #f2ca50; }
+input.error, textarea.error { box-shadow: 0 0 0 2px #ffb4ab; }
+/* Skeleton shimmer */
+@keyframes shimmer { 0% { background-position: -1000px 0; } 100% { background-position: 1000px 0; } }
+.skeleton { background: linear-gradient(90deg, #1c1b1b 25%, #2a2a2a 50%, #1c1b1b 75%); background-size: 1000px 100%; animation: shimmer 1.5s infinite; }

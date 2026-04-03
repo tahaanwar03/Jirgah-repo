@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Jirgah | Admin Dashboard — The Heritage</title>
+  <meta name="description" content="Jirgah Admin — Real-time order management, analytics and operational control for Heritage restaurant operations."/>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=Noto+Serif:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-container-low": "#1c1b1b",
+            "surface-container": "#201f1f",
+            "surface-container-highest": "#353534",
+            "surface-container-high": "#2a2a2a",
+            "on-surface": "#e5e2e1",
+            "background": "#131313",
+            "surface": "#131313",
+            "on-surface-variant": "#d0c5af",
+            "primary": "#f2ca50",
+            "primary-container": "#d4af37",
+            "on-primary": "#3c2f00",
+            "secondary-container": "#4d493d",
+            "on-secondary-container": "#bfb8a9",
+            "outline-variant": "#4d4635",
+            "outline": "#99907c",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "on-background": "#e5e2e1",
+          },
+          fontFamily: {
+            "headline": ["Noto Serif"],
+            "body": ["Inter"],
+            "label": ["Plus Jakarta Sans"],
+            "serif": ["Playfair Display", "serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+  <link href="styles.css" rel="stylesheet"/>
+</head>
+<body class="font-body antialiased overflow-x-hidden">
+
+<!-- ===================== LOGIN GATE ===================== -->
+<div id="login-overlay" class="fixed inset-0 z-[999] bg-[#131313] flex items-center justify-center p-4 transition-opacity duration-300">
+  <div class="bg-[#1c1b1b] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-8 flex flex-col gap-6">
+    <div class="text-center">
+      <span class="text-[#d4af37] font-serif text-3xl italic block mb-1">The Heritage</span>
+      <span class="font-headline font-medium text-xs tracking-widest text-on-surface-variant uppercase">Authorized Access Only</span>
+    </div>
+    <form id="login-form" class="flex flex-col gap-4 mt-2">
+      <div class="relative">
+        <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">lock</span>
+        <input type="password" id="admin-password" placeholder="Enter admin password" class="w-full bg-surface-container-high border border-white/5 rounded-xl py-3 pl-12 pr-4 text-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary transition-all shadow-inner" required />
+      </div>
+      <button type="submit" class="w-full py-3 rounded-xl bg-primary text-on-primary font-bold text-sm hover:bg-[#ffe066] transition-all active:scale-95 flex justify-center items-center gap-2">
+        Unlock Dashboard
+        <span class="material-symbols-outlined text-sm">arrow_forward</span>
+      </button>
+      <p id="login-error" class="text-error text-xs text-center font-medium hidden">Incorrect password.</p>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== SIDEBAR ===================== -->
+<aside id="sidebar" class="h-screen w-64 fixed left-0 top-0 border-r border-white/5 bg-[#131313] shadow-2xl shadow-black/50 z-50 flex flex-col p-6 gap-8 transition-transform duration-300">
+  <div class="flex flex-col gap-1">
+    <span class="text-[#d4af37] font-serif text-2xl italic">The Heritage</span>
+    <span class="font-headline font-medium text-xs tracking-widest text-[#d0c5af] uppercase">Admin Control</span>
+  </div>
+  <nav id="sidebar-nav" class="flex flex-col gap-2">
+    <a href="#" data-view="dashboard" class="nav-link active flex items-center gap-3 p-3 transition-all duration-300 text-[#d0c5af] hover:text-[#e5e2e1] hover:bg-[#1c1b1b] rounded-lg active:scale-95">
+      <span class="material-symbols-outlined">dashboard</span>
+      <span class="font-headline text-sm tracking-wide">Dashboard</span>
+    </a>
+    <a href="#" data-view="orders" class="nav-link flex items-center gap-3 p-3 transition-all duration-300 text-[#d0c5af] hover:text-[#e5e2e1] hover:bg-[#1c1b1b] rounded-lg active:scale-95">
+      <span class="material-symbols-outlined">receipt_long</span>
+      <span class="font-headline text-sm tracking-wide">Orders</span>
+    </a>
+    <a href="#" data-view="menu" class="nav-link flex items-center gap-3 p-3 transition-all duration-300 text-[#d0c5af] hover:text-[#e5e2e1] hover:bg-[#1c1b1b] rounded-lg active:scale-95">
+      <span class="material-symbols-outlined">restaurant_menu</span>
+      <span class="font-headline text-sm tracking-wide">Menu Editor</span>
+    </a>
+    <a href="#" data-view="analytics" class="nav-link flex items-center gap-3 p-3 transition-all duration-300 text-[#d0c5af] hover:text-[#e5e2e1] hover:bg-[#1c1b1b] rounded-lg active:scale-95">
+      <span class="material-symbols-outlined">analytics</span>
+      <span class="font-headline text-sm tracking-wide">Analytics</span>
+    </a>
+  </nav>
+  <div class="mt-auto pt-6 border-t border-white/5 flex items-center gap-3">
+    <div class="w-10 h-10 rounded-full bg-surface-container-highest flex items-center justify-center text-[#d4af37] border border-[#d4af37]/20">
+      <span class="material-symbols-outlined text-xl">person</span>
+    </div>
+    <div class="flex flex-col">
+      <span class="text-sm font-semibold text-on-surface">Restaurant Admin</span>
+      <span class="text-[10px] text-on-surface-variant tracking-tighter uppercase">Jirgah Operations</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ===================== TOP BAR ===================== -->
+<header id="top-bar" class="fixed top-0 right-0 left-64 h-16 z-40 bg-[#131313]/80 backdrop-blur-xl flex items-center justify-between px-8 border-b border-white/5">
+  <div class="flex items-center gap-4">
+    <span id="top-bar-breadcrumb" class="font-body text-xs uppercase tracking-widest text-[#d0c5af]">Dashboard</span>
+    <span class="text-outline/30">/</span>
+    <span class="font-body text-xs uppercase tracking-widest text-[#f2ca50] border-b border-[#f2ca50]">Live Sync</span>
+  </div>
+  <div class="flex items-center gap-4">
+    <!-- Search (visible in orders view) -->
+    <div class="relative hidden md:block" id="global-search-wrap">
+      <span class="absolute inset-y-0 left-3 flex items-center text-outline pointer-events-none">
+        <span class="material-symbols-outlined text-sm">search</span>
+      </span>
+      <input id="top-search" type="text" placeholder="Search orders..."
+        class="bg-surface-container-highest border-none rounded-full py-1.5 pl-10 pr-4 text-xs w-52 focus:ring-1 focus:ring-primary transition-all"/>
+    </div>
+    <button id="refresh-btn" aria-label="Sync data" title="Sync now" class="text-[#d4af37] hover:opacity-70 transition-opacity">
+      <span class="material-symbols-outlined">sync</span>
+    </button>
+    <div class="relative">
+      <button class="text-[#d4af37] hover:opacity-70 transition-opacity" aria-label="Notifications">
+        <span class="material-symbols-outlined">notifications</span>
+      </button>
+      <span id="notif-dot" class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full border-2 border-[#131313]" style="display:none;"></span>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== MAIN CONTENT ===================== -->
+<main id="main-content" class="ml-64 pt-16 min-h-screen">
+
+  <!-- ===== DASHBOARD VIEW ===== -->
+  <section id="view-dashboard" class="view-section active p-8">
+    <div class="mb-8">
+      <h1 class="font-serif text-4xl font-bold text-on-background tracking-tight">Executive Dashboard</h1>
+      <p class="text-on-surface-variant text-sm mt-1">Real-time overview of Jirgah operations. <span id="dash-sync-status" class="text-primary italic"></span></p>
+    </div>
+    <!-- KPI Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10" id="kpi-grid">
+      <!-- Populated by JS -->
+    </div>
+    <!-- Insights Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10" id="insight-grid">
+      <!-- Populated by JS -->
+    </div>
+    <!-- Recent Orders -->
+    <section class="bg-surface-container-low rounded-2xl overflow-hidden shadow-2xl shadow-black/40">
+      <div class="px-8 py-5 flex justify-between items-center border-b border-white/5">
+        <h3 class="font-headline text-lg font-bold text-on-background flex items-center gap-3">
+          Recent Orders
+          <span class="text-[10px] font-body font-normal bg-primary/10 text-primary px-2 py-0.5 rounded uppercase tracking-tighter">Live</span>
+        </h3>
+        <button onclick="navigateTo('orders')" class="text-xs font-label text-primary hover:underline">View All</button>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="text-[10px] uppercase tracking-[0.15em] text-on-surface-variant font-bold bg-[#131313]/30">
+              <th class="px-6 py-4">Order ID</th>
+              <th class="px-6 py-4">Customer</th>
+              <th class="px-6 py-4 hidden md:table-cell">Address</th>
+              <th class="px-6 py-4">Total</th>
+              <th class="px-6 py-4">Status</th>
+              <th class="px-6 py-4 hidden lg:table-cell">Time</th>
+            </tr>
+          </thead>
+          <tbody id="recent-orders-tbody" class="divide-y divide-white/5">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </section>
+
+  <!-- ===== ORDERS VIEW ===== -->
+  <section id="view-orders" class="view-section p-8">
+    <div class="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div>
+        <h1 class="font-serif text-4xl font-bold text-on-background tracking-tight">Orders Management</h1>
+        <p class="text-on-surface-variant text-sm mt-1">Review and manage all culinary orders for Jirgah.</p>
+      </div>
+    </div>
+    <!-- Toolbar -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-6">
+      <div class="lg:col-span-5 relative group">
+        <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant group-focus-within:text-primary transition-colors">search</span>
+        <input id="orders-search" type="text" placeholder="Search by ID, customer name or phone..."
+          class="w-full bg-surface-container-highest border-none rounded-xl pl-12 pr-4 py-3 text-on-surface placeholder:text-outline focus:ring-1 focus:ring-primary transition-all font-body text-sm"/>
+      </div>
+      <div class="lg:col-span-4 flex bg-surface-container-low p-1 rounded-xl" id="filter-tabs">
+        <button data-filter="All" class="filter-tab active flex-1 text-xs font-label font-bold py-2 rounded-lg">All</button>
+        <button data-filter="Pending" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Pending</button>
+        <button data-filter="Delivered" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Delivered</button>
+        <button data-filter="Cancelled" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Cancelled</button>
+      </div>
+      <div class="lg:col-span-3">
+        <select id="sort-select" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-on-surface-variant focus:ring-1 focus:ring-primary font-body text-sm appearance-none cursor-pointer">
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="highest">Highest Total</option>
+          <option value="lowest">Lowest Total</option>
+        </select>
+      </div>
+    </div>
+    <!-- Orders Table -->
+    <div class="bg-surface-container-low rounded-2xl overflow-hidden shadow-2xl border border-white/5">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-surface-container-highest/50 border-b border-white/5">
+              <th class="p-4 w-10"></th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Order ID</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant hidden md:table-cell">Time</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Customer</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant hidden lg:table-cell">Items Preview</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Total</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Status</th>
+              <th class="p-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant text-center">Details</th>
+            </tr>
+          </thead>
+          <tbody id="orders-tbody" class="divide-y divide-white/5">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+      <div id="orders-table-footer" class="p-5 bg-surface-container-highest/20 flex items-center justify-between">
+        <span id="orders-count-label" class="text-xs text-on-surface-variant"></span>
+        <div class="flex items-center gap-2" id="pagination-controls"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== ANALYTICS VIEW ===== -->
+  <section id="view-analytics" class="view-section p-8">
+    <div class="mb-8">
+      <h1 class="font-serif text-4xl font-bold text-on-background tracking-tight">Analytics</h1>
+      <p class="text-on-surface-variant text-sm mt-1">Performance metrics and order insights.</p>
+    </div>
+    <!-- Analytics KPIs -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" id="analytics-kpi-grid">
+      <!-- Populated by JS -->
+    </div>
+    <!-- Charts Row -->
+    <div class="grid grid-cols-12 gap-6 mb-8">
+      <!-- Orders Per Hour -->
+      <div class="col-span-12 lg:col-span-8 bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 shadow-2xl">
+        <div class="flex justify-between items-center mb-6">
+          <div>
+            <h2 class="text-lg font-headline font-bold text-on-surface">Orders Per Hour</h2>
+            <p class="text-on-surface-variant text-xs mt-1">Peak delivery times and order volume distribution</p>
+          </div>
+        </div>
+        <div class="relative h-56">
+          <canvas id="orders-per-hour-chart"></canvas>
+        </div>
+      </div>
+      <!-- Status Distribution -->
+      <div class="col-span-12 lg:col-span-4 bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 shadow-2xl flex flex-col">
+        <h2 class="text-lg font-headline font-bold text-on-surface mb-1">Status Distribution</h2>
+        <p class="text-on-surface-variant text-xs mb-6">Order lifecycle tracking</p>
+        <div class="relative w-40 h-40 mx-auto mb-6">
+          <canvas id="status-doughnut-chart"></canvas>
+          <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <span id="doughnut-center-pct" class="text-2xl font-headline font-bold">0%</span>
+            <span class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Success</span>
+          </div>
+        </div>
+        <div class="flex flex-col gap-3" id="status-legend"></div>
+      </div>
+    </div>
+    <!-- Top Items -->
+    <div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 shadow-2xl">
+      <div class="flex justify-between items-center mb-6">
+        <h2 class="text-lg font-headline font-bold text-on-surface">Top Selling Items</h2>
+        <span class="text-xs text-on-surface-variant italic">Showing all-time data</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-5" id="top-items-grid">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== VIEW: MENU EDITOR ===================== -->
+  <section id="view-menu" class="view-section hidden pb-24 md:pb-8 flex-col gap-6">
+    <div class="flex justify-between items-end">
+      <div>
+        <h1 class="font-serif text-3xl font-bold text-on-background">Live Menu Editor</h1>
+        <p class="text-xs text-on-surface-variant font-label uppercase tracking-widest mt-1">Changes reflect instantly on Website</p>
+      </div>
+      <div class="flex gap-3 relative">
+        <select id="menu-category-filter" class="bg-surface-container border border-white/5 rounded-lg text-sm text-on-surface py-2 px-3 focus:border-primary focus:ring-0">
+          <option value="All">All Categories</option>
+          <!-- JS fills this -->
+        </select>
+        <div class="relative">
+          <span class="absolute inset-y-0 left-3 flex items-center text-outline">
+            <span class="material-symbols-outlined text-[18px]">search</span>
+          </span>
+          <input id="menu-search" type="text" placeholder="Search menu..." class="bg-surface-container border border-white/5 rounded-lg py-2 pl-9 pr-4 text-sm w-48 focus:border-primary focus:ring-0 text-on-surface" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Menu Editor Table -->
+    <div class="bg-surface-container-low rounded-xl border border-outline-variant/5 shadow-2xl overflow-hidden flex flex-col flex-1 min-h-[500px]">
+      <div class="overflow-x-auto flex-1 h-[600px]">
+        <table class="w-full text-left max-w-none min-w-[900px] border-collapse relative">
+          <thead class="sticky top-0 bg-surface-container-highest z-10 shadow-md">
+            <tr class="text-[10px] uppercase font-label tracking-widest text-[#d0c5af] border-b border-white/10">
+              <th class="p-4 w-12 text-center">Img</th>
+              <th class="p-4 w-48">Name & Category</th>
+              <th class="p-4 w-32">Price (Base)</th>
+              <th class="p-4 w-64">Description</th>
+              <th class="p-4 w-48">Variants (JSON)</th>
+              <th class="p-4 w-24">Action</th>
+            </tr>
+          </thead>
+          <tbody id="menu-editor-tbody" class="divide-y divide-white/5 bg-[#131313]/50">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ===================== MOBILE BOTTOM NAV ===================== -->
+<nav id="bottom-nav" class="fixed bottom-0 left-0 right-0 z-50 bg-[#131313] border-t border-white/5 flex items-center justify-around py-2 md:hidden">
+  <button data-view="dashboard" class="bottom-nav-btn flex flex-col items-center gap-1 text-[#f2ca50] px-4 py-2">
+    <span class="material-symbols-outlined text-xl" style="font-variation-settings:'FILL' 1;">dashboard</span>
+    <span class="text-[10px] font-label uppercase tracking-wider">Dash</span>
+  </button>
+  <button data-view="orders" class="bottom-nav-btn flex flex-col items-center gap-1 text-[#d0c5af] px-4 py-2">
+    <span class="material-symbols-outlined text-xl">receipt_long</span>
+    <span class="text-[10px] font-label uppercase tracking-wider">Orders</span>
+  </button>
+  <button data-view="menu" class="bottom-nav-btn flex flex-col items-center gap-1 text-[#d0c5af] px-4 py-2">
+    <span class="material-symbols-outlined text-xl">restaurant_menu</span>
+    <span class="text-[10px] font-label uppercase tracking-wider">Menu</span>
+  </button>
+  <button data-view="analytics" class="bottom-nav-btn flex flex-col items-center gap-1 text-[#d0c5af] px-4 py-2">
+    <span class="material-symbols-outlined text-xl">analytics</span>
+    <span class="text-[10px] font-label uppercase tracking-wider">Analytics</span>
+  </button>
+</nav>
+
+<!-- ===================== DELETE CONFIRM MODAL ===================== -->
+<div id="delete-confirm-modal" class="fixed inset-0 z-[300] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+  <div class="absolute inset-0 bg-black/70 backdrop-blur-sm" id="delete-modal-backdrop"></div>
+  <div class="relative bg-[#1c1b1b] border border-white/10 rounded-2xl shadow-2xl w-full max-w-sm p-8 flex flex-col gap-6 animate-fade-in">
+    <div class="flex items-center gap-4">
+      <div class="w-12 h-12 rounded-full bg-error-container/30 flex items-center justify-center flex-shrink-0">
+        <span class="material-symbols-outlined text-2xl text-error" style="font-variation-settings:'FILL' 1;">delete_forever</span>
+      </div>
+      <div>
+        <h3 id="delete-modal-title" class="font-headline font-bold text-lg text-on-surface">Delete Order?</h3>
+        <p class="text-sm text-on-surface-variant mt-0.5">This action cannot be undone.</p>
+      </div>
+    </div>
+    <p class="text-sm text-on-surface-variant leading-relaxed">
+      You are about to permanently delete order
+      <span id="delete-order-id-label" class="font-mono text-primary font-bold"></span>.
+      It will be removed from Google Sheets immediately.
+    </p>
+    <div class="flex gap-3">
+      <button id="delete-cancel-btn" class="flex-1 py-3 rounded-xl border border-white/10 text-on-surface-variant hover:text-on-surface hover:border-white/20 font-label font-bold text-sm transition-all active:scale-95">
+        Cancel
+      </button>
+      <button id="delete-confirm-btn" class="flex-1 py-3 rounded-xl bg-error-container text-error hover:bg-error hover:text-on-primary font-label font-bold text-sm transition-all active:scale-95 flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined text-sm">delete</span>
+        Delete Order
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== TOAST CONTAINER ===================== -->
+<div id="toast-container" class="fixed bottom-20 right-6 z-[200] flex flex-col gap-3 pointer-events-none md:bottom-6" aria-live="polite"></div>
+
+<!-- Decorative gold ornament -->
+<div class="fixed bottom-8 right-8 pointer-events-none opacity-5 z-0">
+  <svg fill="none" height="120" viewBox="0 0 100 100" width="120" xmlns="http://www.w3.org/2000/svg">
+    <path d="M50 0L55.8 44.2L100 50L55.8 55.8L50 100L44.2 55.8L0 50L44.2 44.2L50 0Z" fill="#d4af37"/>
+  </svg>
+</div>
+
+<script src="../website/menu.js"></script>
+<script src="sampledata.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

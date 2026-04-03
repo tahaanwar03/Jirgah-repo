@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+  <title>Jirgah | Authentic Desi Flavors — Order Online</title>
+  <meta name="description" content="Jirgah — The Royal Heritage of Peshawar. Order authentic Peshawari cuisine online. Biryani, Karahi, BBQ, and more delivered to your door."/>
+  <meta property="og:title" content="Jirgah | Authentic Desi Flavors"/>
+  <meta property="og:description" content="Experience the Royal Heritage of Peshawar. Order online."/>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=Inter:wght@300;400;500;600&family=Noto+Serif:wght@400;700;900&family=Plus+Jakarta+Sans:wght@500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-container-low": "#1c1b1b",
+            "surface-container": "#201f1f",
+            "surface-container-highest": "#353534",
+            "surface-container-high": "#2a2a2a",
+            "on-surface": "#e5e2e1",
+            "background": "#131313",
+            "surface": "#131313",
+            "on-surface-variant": "#d0c5af",
+            "primary": "#f2ca50",
+            "primary-container": "#d4af37",
+            "on-primary": "#3c2f00",
+            "secondary-container": "#4d493d",
+            "on-secondary-container": "#bfb8a9",
+            "outline-variant": "#4d4635",
+            "outline": "#99907c",
+            "error": "#ffb4ab",
+            "error-container": "#93000a",
+            "on-background": "#e5e2e1",
+          },
+          fontFamily: {
+            "headline": ["Noto Serif"],
+            "body": ["Inter"],
+            "label": ["Plus Jakarta Sans"],
+            "serif": ["Playfair Display", "serif"]
+          },
+          borderRadius: {"DEFAULT": "0.25rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+        },
+      },
+    }
+  </script>
+  <link href="styles.css" rel="stylesheet"/>
+</head>
+<body class="bg-background text-on-surface font-body selection:bg-primary/30 selection:text-primary overflow-x-hidden">
+
+<!-- ===================== NAVBAR ===================== -->
+<header id="main-nav" class="fixed top-0 w-full z-50 bg-[#131313]/70 backdrop-blur-xl shadow-2xl shadow-black/40">
+  <div class="flex justify-between items-center px-6 md:px-8 py-4 max-w-7xl mx-auto">
+    <div class="text-2xl font-bold text-[#d4af37] tracking-tight font-headline flex items-center gap-2">
+      <span class="text-3xl">جرگہ</span>
+      <span class="border-l border-outline-variant/30 pl-2">Jirgah</span>
+    </div>
+    <div class="hidden md:block"></div>
+    <div class="flex items-center gap-2">
+      <button id="cart-btn" aria-label="Open cart" class="relative p-2 text-[#d4af37] hover:bg-[#d4af37]/10 transition-all duration-300 rounded-full active:scale-90">
+        <span class="material-symbols-outlined">shopping_cart</span>
+        <span id="cart-badge" class="absolute top-0 right-0 bg-primary text-on-primary text-[10px] font-bold h-5 w-5 flex items-center justify-center rounded-full transition-all" style="display:none;">0</span>
+      </button>
+      <button class="md:hidden p-2 text-[#d4af37]" aria-label="Menu">
+        <span class="material-symbols-outlined">menu</span>
+      </button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== HERO ===================== -->
+<section class="relative min-h-screen flex items-center pt-20 overflow-hidden">
+  <div class="absolute inset-0 z-0">
+    <div class="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent z-10"></div>
+    <div class="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/20 z-10"></div>
+    <img alt="Jirgah Heritage — dramatic clay pot of biryani with golden candlelight" class="w-full h-full object-cover object-center scale-105"
+      src="https://lh3.googleusercontent.com/aida-public/AB6AXuDa2LnFsVhHv3StqaijTBuYnfkNXsIrx7Dc0v6YY4v0B9ScZgkLRyWwvobok_ROxBzNMc8EmbfsgJt-FDv_t5CDqF9K3tkKHGlksRzzm5CJWG8yV7UoXEClC7yNbZejJVO2ZJxoETC1tNFhVZwoDK6IwkkPZwxhi8QtcyYuqp6owB8qGcWE-XnsXd2BOmkLu8WmYoCLOWws14jdl-rt3fRXhHU98tGw_K04oi3v7fJP4XGMqWKjQYj_pv8TB_kZW2wCJDShGziEJ2M"/>
+  </div>
+  <div class="relative z-20 max-w-7xl mx-auto px-6 md:px-8 w-full">
+    <div class="max-w-3xl space-y-6">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-label uppercase tracking-widest">
+        <span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1;">star</span>
+        The Royal Heritage of Peshawar
+      </div>
+      <h1 class="font-serif text-7xl md:text-9xl font-black text-on-background leading-none">
+        <span class="block text-primary text-glow mb-2">جرگہ</span>
+        Jirgah
+      </h1>
+      <p class="text-on-surface-variant text-xl md:text-2xl font-light max-w-xl leading-relaxed italic">
+        Authentic Desi Flavors, Delivered. A manuscript of spices written over generations.
+      </p>
+      <div class="flex flex-wrap gap-4 pt-4">
+        <button id="hero-order-btn" onclick="document.getElementById('menu').scrollIntoView({behavior:'smooth'})"
+          class="px-10 py-4 bg-primary text-on-primary rounded-xl font-label font-bold text-lg hover:brightness-110 transition-all shadow-xl shadow-primary/20 active:scale-95">
+          Order Now
+        </button>
+        <button onclick="document.getElementById('footer').scrollIntoView({behavior:'smooth'})"
+          class="px-10 py-4 bg-transparent border border-primary/20 text-primary rounded-xl font-label font-bold text-lg hover:bg-primary/5 transition-all active:scale-95">
+          View Heritage
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="absolute bottom-12 left-1/2 -translate-x-1/2 z-20 animate-bounce">
+    <span class="material-symbols-outlined text-primary/50 text-4xl">expand_more</span>
+  </div>
+</section>
+
+<!-- ===================== MENU SECTION ===================== -->
+<section class="bg-background py-24 px-6 md:px-8" id="menu">
+  <div class="max-w-7xl mx-auto">
+    <!-- Section Header & Sticky Tabs -->
+    <div class="mb-10">
+      <div class="mb-8">
+        <h2 class="font-serif text-5xl font-bold text-on-background mb-4">The Culinary Manuscript</h2>
+        <p class="text-on-surface-variant max-w-md">Every dish tells a story of the soil, the fire, and the hands that crafted it.</p>
+      </div>
+      <!-- Category Tabs (Sticky) -->
+      <div class="sticky top-20 z-40 bg-background/95 backdrop-blur-md py-4 border-y border-white/5 shadow-2xl -mx-6 px-6 md:-mx-8 md:px-8">
+        <div id="category-tabs" class="flex items-center gap-2 overflow-x-auto no-scrollbar pb-1">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+    </div>
+    <!-- Menu Container -->
+    <div id="menu-container">
+      <!-- Rendered by JS -->
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CART DRAWER ===================== -->
+<div id="cart-drawer" class="fixed inset-0 z-[100] pointer-events-none overflow-hidden">
+  <div id="cart-overlay" class="absolute inset-0 bg-black/60 opacity-0 transition-opacity duration-500 pointer-events-none"></div>
+  <aside id="cart-aside" class="fixed right-0 h-full w-full md:w-[420px] bg-[#131313] z-[110] translate-x-full transition-transform duration-500 ease-in-out shadow-[-20px_0_40px_rgba(0,0,0,0.6)] flex flex-col"
+    style="pointer-events:all;">
+    <!-- Cart Header -->
+    <div class="flex justify-between items-center p-6 border-b border-outline-variant/15">
+      <div>
+        <h2 class="text-xl font-bold text-[#d4af37] font-headline">Your Selection</h2>
+        <p class="text-on-surface-variant text-xs font-label uppercase tracking-wider">Heritage Flavors</p>
+      </div>
+      <button id="cart-close-btn" aria-label="Close cart" class="p-2 text-on-surface-variant hover:text-primary active:scale-90 transition-all">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <!-- Cart Items -->
+    <div id="cart-items-list" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <!-- Populated by JS -->
+    </div>
+    <!-- Cart Footer -->
+    <div id="cart-footer" class="p-6 border-t border-outline-variant/15 space-y-4">
+      <div class="flex justify-between text-on-surface-variant text-sm">
+        <span>Subtotal</span>
+        <span id="cart-subtotal" class="font-bold text-on-surface">Rs. 0</span>
+      </div>
+      <div class="flex justify-between text-on-surface-variant text-sm">
+        <span>Delivery Fee</span>
+        <span class="font-bold text-on-surface">Rs. 100</span>
+      </div>
+      <div class="flex justify-between text-xl font-bold text-primary">
+        <span>Total</span>
+        <span id="cart-total-display">Rs. 100</span>
+      </div>
+      <button id="checkout-btn"
+        class="w-full py-4 bg-primary text-on-primary font-label font-bold text-lg rounded-xl shadow-lg shadow-primary/20 active:scale-95 transition-all hover:brightness-110">
+        Checkout Now
+      </button>
+    </div>
+  </aside>
+</div>
+
+<!-- ===================== CHECKOUT MODAL ===================== -->
+<div id="checkout-modal" class="fixed inset-0 z-[120] flex items-center justify-center px-4" style="display:none!important;">
+  <div class="absolute inset-0 bg-black/80 backdrop-blur-md" id="modal-backdrop"></div>
+  <div class="relative bg-surface-container-low w-full max-w-2xl rounded-2xl overflow-hidden shadow-2xl border border-outline-variant/10 mx-auto max-h-[90vh] overflow-y-auto">
+    <!-- Gold top line -->
+    <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-primary to-transparent"></div>
+    <div class="p-8 md:p-10">
+      <div class="flex justify-between items-start mb-8">
+        <div>
+          <h2 class="text-3xl font-headline font-bold text-primary">Finalize Order</h2>
+          <p class="text-on-surface-variant font-body text-sm mt-1">Complete your heritage dining experience.</p>
+        </div>
+        <button id="modal-close-btn" aria-label="Close checkout" class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <form id="checkout-form" class="grid grid-cols-1 md:grid-cols-2 gap-6" novalidate>
+        <!-- Full Name -->
+        <div class="space-y-2">
+          <label class="text-xs font-label uppercase tracking-widest text-primary font-bold" for="field-name">Full Name</label>
+          <input id="field-name" name="name" type="text" placeholder="Ahmad Khan" autocomplete="name"
+            class="w-full bg-surface-container-highest border-none rounded-lg p-4 text-on-surface placeholder:text-on-surface-variant/40 transition-all font-body"/>
+          <p class="error-msg text-error text-xs hidden" id="error-name">Please enter your name</p>
+        </div>
+        <!-- Phone Number -->
+        <div class="space-y-2">
+          <label class="text-xs font-label uppercase tracking-widest text-primary font-bold" for="field-phone">Phone Number</label>
+          <input id="field-phone" name="phone" type="tel" placeholder="03xxxxxxxxx" autocomplete="tel"
+            class="w-full bg-surface-container-highest border-none rounded-lg p-4 text-on-surface placeholder:text-on-surface-variant/40 transition-all font-body"/>
+          <p class="error-msg text-error text-xs hidden" id="error-phone">Please enter your phone number</p>
+        </div>
+        <!-- Delivery Address -->
+        <div class="md:col-span-2 space-y-2">
+          <label class="text-xs font-label uppercase tracking-widest text-primary font-bold" for="field-address">Delivery Address</label>
+          <textarea id="field-address" name="address" placeholder="House #, Street, Area, City" rows="3" autocomplete="street-address"
+            class="w-full bg-surface-container-highest border-none rounded-lg p-4 text-on-surface placeholder:text-on-surface-variant/40 transition-all resize-none font-body"></textarea>
+          <p class="error-msg text-error text-xs hidden" id="error-address">Please enter a complete address (min 10 characters)</p>
+        </div>
+        <!-- Special Instructions -->
+        <div class="md:col-span-2 space-y-2">
+          <label class="text-xs font-label uppercase tracking-widest text-primary font-bold" for="field-notes">Special Instructions</label>
+          <input id="field-notes" name="notes" type="text" placeholder="e.g. Extra spicy, no cutlery needed"
+            class="w-full bg-surface-container-highest border-none rounded-lg p-4 text-on-surface placeholder:text-on-surface-variant/40 transition-all font-body"/>
+        </div>
+        <!-- Submit -->
+        <div class="md:col-span-2 mt-2">
+          <button id="place-order-btn" type="submit"
+            class="w-full bg-primary-container text-on-primary py-5 rounded-xl font-headline font-bold text-xl shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-60 disabled:cursor-not-allowed">
+            <span class="material-symbols-outlined" id="order-btn-icon">check_circle</span>
+            <span id="order-btn-text">Place Order (Rs. 0)</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== SUCCESS SCREEN ===================== -->
+<div id="success-screen" class="fixed inset-0 z-[130] flex items-center justify-center px-4" style="display:none!important;">
+  <div class="absolute inset-0 bg-background/95 backdrop-blur-md"></div>
+  <div class="relative text-center space-y-6 max-w-md mx-auto">
+    <svg width="96" height="96" viewBox="0 0 96 96" class="mx-auto">
+      <circle cx="48" cy="48" r="44" fill="none" stroke="#f2ca50" stroke-width="4" opacity="0.2"/>
+      <circle cx="48" cy="48" r="44" fill="none" stroke="#f2ca50" stroke-width="4"
+        stroke-dasharray="276" stroke-dashoffset="276" class="check-draw" stroke-linecap="round"/>
+      <polyline points="28,48 42,62 68,36" fill="none" stroke="#f2ca50" stroke-width="5"
+        stroke-dasharray="60" stroke-dashoffset="60" class="check-draw" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <h2 class="font-serif text-4xl font-bold text-on-background">Order Placed!</h2>
+      <p class="text-on-surface-variant mt-2">Your heritage dining experience is being prepared.</p>
+    </div>
+    <div class="bg-surface-container-low rounded-xl p-4 border border-outline-variant/15">
+      <p class="text-xs text-on-surface-variant font-label uppercase tracking-widest mb-1">Your Order ID</p>
+      <p id="success-order-id" class="text-primary font-mono font-bold text-xl"></p>
+    </div>
+    <button id="new-order-btn"
+      class="px-10 py-4 bg-primary text-on-primary font-label font-bold text-lg rounded-xl shadow-lg shadow-primary/20 active:scale-95 transition-all hover:brightness-110">
+      Place Another Order
+    </button>
+  </div>
+</div>
+
+<!-- ===================== TOAST CONTAINER ===================== -->
+<div id="toast-container" class="fixed bottom-6 right-6 z-[200] flex flex-col gap-3 pointer-events-none" aria-live="polite"></div>
+
+<!-- ===================== FOOTER ===================== -->
+<footer id="footer" class="w-full py-16 px-6 md:px-8 border-t border-[#4d4635]/15 bg-[#131313]">
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-12 max-w-7xl mx-auto">
+    <div class="col-span-1">
+      <div class="text-3xl font-black text-[#d4af37] mb-4 font-headline tracking-tight">Jirgah</div>
+      <p class="text-[#d0c5af] font-body text-sm leading-relaxed italic">
+        Elevating Peshawari culinary arts to a global manuscript. Taste the royalty of the north.
+      </p>
+      <div class="flex gap-4 mt-6">
+        <a href="#" aria-label="Website" class="h-10 w-10 rounded-full border border-outline-variant/30 flex items-center justify-center text-primary hover:bg-primary/10 transition-all">
+          <span class="material-symbols-outlined text-lg">public</span>
+        </a>
+        <a href="#" aria-label="Share" class="h-10 w-10 rounded-full border border-outline-variant/30 flex items-center justify-center text-primary hover:bg-primary/10 transition-all">
+          <span class="material-symbols-outlined text-lg">share</span>
+        </a>
+      </div>
+    </div>
+    <div>
+      <h4 class="text-on-surface font-label font-bold text-xs uppercase tracking-[0.2em] mb-6">Explore</h4>
+      <ul class="space-y-4 font-body text-[#d0c5af] text-sm">
+        <li><a class="hover:text-[#f2ca50] transition-colors" href="#menu">Menu</a></li>
+        <li><a class="hover:text-[#f2ca50] transition-colors" href="#">Our Story</a></li>
+        <li><a class="hover:text-[#f2ca50] transition-colors" href="#">Locations</a></li>
+        <li><a class="hover:text-[#f2ca50] transition-colors" href="#">Careers</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="text-on-surface font-label font-bold text-xs uppercase tracking-[0.2em] mb-6">Contact</h4>
+      <ul class="space-y-4 font-body text-[#d0c5af] text-sm">
+        <li class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary text-base">call</span>
+          +92 (300) 123 4567
+        </li>
+        <li class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary text-base">mail</span>
+          concierge@jirgah.com
+        </li>
+        <li class="flex items-center gap-3">
+          <span class="material-symbols-outlined text-primary text-base">location_on</span>
+          Gulberg III, Lahore
+        </li>
+      </ul>
+    </div>
+    <div>
+      <h4 class="text-on-surface font-label font-bold text-xs uppercase tracking-[0.2em] mb-6">Join the Circle</h4>
+      <p class="text-[#d0c5af] text-xs font-body mb-4">Receive invitations to private heritage events.</p>
+      <div class="flex">
+        <input type="email" placeholder="Email Address" aria-label="Email address for newsletter"
+          class="bg-surface-container-highest border-none text-on-surface text-xs p-3 rounded-l-lg w-full focus:ring-1 focus:ring-primary placeholder:text-on-surface-variant/40"/>
+        <button class="bg-primary text-on-primary px-4 rounded-r-lg hover:brightness-110 transition-all" aria-label="Subscribe">
+          <span class="material-symbols-outlined text-lg">arrow_forward</span>
+        </button>
+      </div>
+    </div>
+  </div>
+  <div class="max-w-7xl mx-auto mt-16 pt-8 border-t border-outline-variant/10 flex flex-col md:flex-row justify-between items-center gap-4">
+    <p class="text-[#d0c5af] text-[10px] font-label uppercase tracking-widest opacity-80">© 2024 Jirgah Culinary Manuscript. All Rights Reserved.</p>
+    <div class="flex gap-6 text-[10px] font-label uppercase tracking-widest">
+      <a class="text-[#d0c5af] hover:text-[#f2ca50] transition-colors" href="#">Privacy</a>
+      <a class="text-[#d0c5af] hover:text-[#f2ca50] transition-colors" href="#">Terms</a>
+    </div>
+  </div>
+</footer>
+
+<!-- ===================== ADD TO CART MODAL ===================== -->
+<div id="variant-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4">
+  <div class="absolute inset-0 bg-black/80 backdrop-blur-md" onclick="closeVariantModal()"></div>
+  <div class="relative w-full max-w-md bg-[#201f1f] rounded-3xl overflow-hidden shadow-2xl border border-white/5 animate-slide-up">
+    <div id="variant-image" class="h-48 bg-cover bg-center"></div>
+    <div class="p-6">
+      <h3 id="variant-name" class="font-headline text-2xl font-bold text-[#e5e2e1]">Item Name</h3>
+      <p id="variant-desc" class="text-[#d0c5af] text-sm mt-1 mb-4">Item Description</p>
+      
+      <div id="variant-section" class="mt-4 hidden">
+        <label class="text-[10px] uppercase tracking-widest text-[#d4af37] font-bold">Select Option</label>
+        <div id="variant-options" class="grid grid-cols-1 gap-3 mt-3">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <div class="mt-6 flex items-center justify-between bg-white/5 p-4 rounded-xl border border-white/5">
+        <label class="text-sm font-label font-bold text-[#e5e2e1]">Quantity</label>
+        <div class="flex items-center gap-4">
+          <button onclick="updateModalQty(-1)" class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center text-[#e5e2e1] hover:text-[#f2ca50] hover:border-[#f2ca50] transition-colors active:scale-95">
+            <span class="material-symbols-outlined text-sm">remove</span>
+          </button>
+          <span id="modal-qty" class="text-lg font-bold text-[#f2ca50] w-6 text-center">1</span>
+          <button onclick="updateModalQty(1)" class="w-8 h-8 rounded-full border border-white/20 flex items-center justify-center text-[#e5e2e1] hover:text-[#f2ca50] hover:border-[#f2ca50] transition-colors active:scale-95">
+            <span class="material-symbols-outlined text-sm">add</span>
+          </button>
+        </div>
+      </div>
+      
+      <div class="mt-8 flex gap-3">
+        <button onclick="closeVariantModal()" class="flex-1 py-3 px-6 rounded-xl border border-white/10 text-sm font-label hover:bg-white/5 transition-all text-[#e5e2e1]">Cancel</button>
+        <button id="confirm-variant-btn" class="flex-[2] py-3 px-6 rounded-xl bg-[#f2ca50] text-[#3c2f00] font-bold text-sm hover:scale-[1.02] active:scale-95 transition-all">Add to Cart</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="menu.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
