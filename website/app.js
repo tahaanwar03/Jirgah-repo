@@ -1,15 +1,16 @@
 // app.js — Jirgah Customer Website Application Logic
-// Implements: Cart, Checkout, Order Submission, Toast, Feedback
-// Per implementation_plan.md.resolved §1–§8
+// Phase 9: Order Tracking, Closed State, Availability
 
 'use strict';
 
 // ===================== CONFIG =====================
 const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbyvcqmG61-nZ8iU8b4u5M3riIPcI-X50-s90a1TjjOT2NfHDOJlVjw_V7EXJZWHp9-M9A/exec', // TODO: paste your deployed Google Apps Script URL here
-  API_KEY: 'JIRGAH_SECURE_2026', // Must match backend string
+  GAS_URL: 'https://script.google.com/macros/s/AKfycbyvcqmG61-nZ8iU8b4u5M3riIPcI-X50-s90a1TjjOT2NfHDOJlVjw_V7EXJZWHp9-M9A/exec',
+  API_KEY: 'JIRGAH_SECURE_2026',
   DELIVERY_FEE: 100,
   CURRENCY: 'Rs.',
+  MAX_RETRY_COUNT: 5,
+  RETRY_DELAY_MS: 5000,
 };
 
 const CATEGORIES = [
@@ -18,11 +19,19 @@ const CATEGORIES = [
   'Pizza Traditional Flavors', 'Oven Baked Pasta', 'Extras'
 ];
 
+const STATUS_STEPS = [
+  { key: 'Pending', label: 'Order Received', icon: 'receipt' },
+  { key: 'Accepted', label: 'Preparing', icon: 'restaurant' },
+  { key: 'Preparing', label: 'Cooking', icon: 'local_fire_department' },
+  { key: 'Out for Delivery', label: 'On the way', icon: 'delivery_dining' },
+  { key: 'Delivered', label: 'Delivered', icon: 'check_circle' },
+];
+
 // ===================== STATE =====================
 const AppState = {
   cart: {
-    items: [],    // [{ id, name, price, qty, image, variant }]
-    total: 0,     // subtotal (no delivery fee)
+    items: [],
+    total: 0,
     itemCount: 0
   },
   ui: {
@@ -33,51 +42,104 @@ const AppState = {
     isSubmitting: false,
     activeCategory: 'All',
     menuLoaded: false
-  }
+  },
+  isOpen: true,
+  restaurantName: 'Jirgah'
 };
 
 // ===================== INIT =====================
 document.addEventListener('DOMContentLoaded', async () => {
   hydrateCartFromStorage();
-  processFailedOrders(); // Run background retry queue immediately
+  processFailedOrders();
   renderCategoryTabs();
   
-  // 1. Initial Instant Render (using local menu.js or storage)
   renderMenuGrid(AppState.ui.activeCategory);
   renderCartDrawer();
   updateCartBadge();
   bindEvents();
   
-  // 2. Background Sync (don't "await" so user is never blocked)
-  fetchMenu();
+  fetchSystemState();
+  
+  setInterval(() => {
+    processFailedOrders();
+  }, 60000);
 });
+
+async function fetchSystemState() {
+  if (!CONFIG.GAS_URL) return;
+  try {
+    const res = await fetch(`${CONFIG.GAS_URL}?t=${Date.now()}`);
+    const data = await res.json();
+    if (data.status === 'success' && data.system) {
+      AppState.isOpen = data.system.isOpen !== false;
+      AppState.restaurantName = data.system.restaurantName || 'Jirgah';
+      updateClosedBanner();
+    }
+  } catch (e) {
+    console.warn('Failed to fetch system state:', e);
+  }
+}
+
+function updateClosedBanner() {
+  const banner = document.getElementById('closed-banner');
+  if (!banner) return;
+  
+  if (!AppState.isOpen) {
+    banner.classList.remove('hidden');
+    banner.classList.add('flex');
+  } else {
+    banner.classList.add('hidden');
+    banner.classList.remove('flex');
+  }
+}
 
 async function fetchMenu() {
   if (!CONFIG.GAS_URL) return;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000); // 15s max for GAS cold start
+  const timeout = setTimeout(() => controller.abort(), 15000);
   try {
     const res = await fetch(`${CONFIG.GAS_URL}?t=${Date.now()}`, { signal: controller.signal });
     clearTimeout(timeout);
     const data = await res.json();
+    
     if (data.status === 'success' && data.menu && data.menu.length > 0) {
-      window.LIVE_MENU = data.menu.map(item => ({
-        id: item.ID,
-        category: item.Category,
-        name: item.Name,
-        description: item.Description,
-        price: parseFloat(item.Price),
-        image: item.Image,
-        badge: item.Badge,
-        variants: (() => { try { return JSON.parse(item.Variants_JSON || '[]'); } catch { return []; } })()
-      }));
-      AppState.ui.menuLoaded = true;
+      const serverVersion = data.menuVersion;
+      const localVersion = localStorage.getItem('jirgah_menu_version');
       
-      // 3. Silent Update: Re-render the menu grid now that fresh prices are here
-      console.log('Menu updated from Sheet.');
-      renderMenuGrid(AppState.ui.activeCategory);
+      if (serverVersion && serverVersion !== localVersion) {
+        window.LIVE_MENU = data.menu.map(item => ({
+          id: item.ID,
+          category: item.Category,
+          name: item.Name,
+          description: item.Description,
+          price: parseFloat(item.Price),
+          image: item.Image,
+          badge: item.Badge,
+          available: item.Available !== false && item.Available !== 'false',
+          variants: (() => { try { return JSON.parse(item.Variants_JSON || '[]'); } catch { return []; } })()
+        }));
+        localStorage.setItem('jirgah_menu_version', serverVersion);
+        localStorage.setItem('jirgah_live_menu', JSON.stringify(window.LIVE_MENU));
+        AppState.ui.menuLoaded = true;
+        console.log('Menu updated from Sheet (version: ' + serverVersion + ').');
+        renderMenuGrid(AppState.ui.activeCategory);
+      } else if (localVersion && serverVersion === localVersion) {
+        const cachedMenu = localStorage.getItem('jirgah_live_menu');
+        if (cachedMenu) {
+          window.LIVE_MENU = JSON.parse(cachedMenu);
+          AppState.ui.menuLoaded = true;
+          console.log('Using cached menu (version: ' + localVersion + ').');
+          renderMenuGrid(AppState.ui.activeCategory);
+        }
+      }
     } else {
       console.warn('Live menu empty or unavailable — using local menu.');
+    }
+    
+    if (data.system) {
+      AppState.isOpen = data.system.isOpen !== false;
+      AppState.restaurantName = data.system.restaurantName || 'Jirgah';
+      updateClosedBanner();
     }
   } catch (err) {
     clearTimeout(timeout);
@@ -91,35 +153,34 @@ async function fetchMenu() {
 
 // ===================== EVENT BINDING =====================
 function bindEvents() {
-  // Cart open/close
   document.getElementById('cart-btn').addEventListener('click', openCartDrawer);
   document.getElementById('cart-close-btn').addEventListener('click', closeCartDrawer);
   document.getElementById('cart-overlay').addEventListener('click', closeCartDrawer);
 
-  // Checkout open/close
   document.getElementById('checkout-btn').addEventListener('click', openCheckout);
   document.getElementById('modal-close-btn').addEventListener('click', closeCheckout);
   document.getElementById('modal-backdrop').addEventListener('click', closeCheckout);
 
-  // Form submission
   document.getElementById('checkout-form').addEventListener('submit', handleFormSubmit);
 
-  // Clear errors on focus
   ['field-name', 'field-phone', 'field-address'].forEach(id => {
     document.getElementById(id).addEventListener('focus', () => clearFieldError(id));
   });
 
-  // New order
   document.getElementById('new-order-btn').addEventListener('click', resetForNewOrder);
 
-  // Event delegation: cart item interactions
   document.getElementById('cart-items-list').addEventListener('click', handleCartInteraction);
 
-  // Category tab clicks (delegated)
   document.getElementById('category-tabs').addEventListener('click', handleCategoryClick);
 
-  // Menu container: Add to Cart (delegated — must be on document since container is re-rendered)
   document.addEventListener('click', handleMenuClick);
+
+  document.getElementById('track-order-btn').addEventListener('click', handleTrackOrderSubmit);
+  document.getElementById('track-form').addEventListener('submit', e => {
+    e.preventDefault();
+    handleTrackOrderSubmit();
+  });
+  document.getElementById('close-tracking-btn').addEventListener('click', closeTrackingModal);
 }
 
 // ===================== CATEGORY TABS =====================
@@ -151,7 +212,6 @@ function renderMenuGrid(category) {
   const container = document.getElementById('menu-container');
   let html = '';
 
-  // Use live menu if loaded, otherwise fallback to static MENU
   const currentMenu = AppState.ui.menuLoaded ? window.LIVE_MENU : MENU;
   const catsToRender = category === 'All' ? CATEGORIES.filter(c => c !== 'All') : [category];
 
@@ -166,14 +226,18 @@ function renderMenuGrid(category) {
     html += `<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">`;
     html += items.map((item, idx) => {
       const offset = (category !== 'All' && idx % 3 === 1) ? 'lg:translate-y-8' : '';
+      const isAvailable = item.available !== false;
       return `
-      <div class="group relative bg-surface-container-low rounded-lg overflow-hidden transition-all duration-500 hover:shadow-[0_20px_40px_rgba(0,0,0,0.6)] ${offset}">
+      <div class="group relative bg-surface-container-low rounded-lg overflow-hidden transition-all duration-500 hover:shadow-[0_20px_40px_rgba(0,0,0,0.6)] ${offset} ${!isAvailable ? 'opacity-60' : ''}">
         <div class="aspect-[4/3] overflow-hidden relative">
           <img alt="${item.name}" loading="lazy"
-            class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
+            class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110 ${!isAvailable ? 'grayscale' : ''}"
             src="${item.image}"/>
           ${item.badge ? `<div class="absolute top-4 left-4">
             <span class="px-3 py-1 bg-secondary-container text-on-secondary-container text-[10px] font-bold rounded-full uppercase tracking-tighter">${item.badge}</span>
+          </div>` : ''}
+          ${!isAvailable ? `<div class="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <span class="px-4 py-2 bg-red-500/90 text-white text-sm font-bold rounded-lg">Unavailable</span>
           </div>` : ''}
         </div>
         <div class="p-6 md:p-8">
@@ -188,9 +252,11 @@ function renderMenuGrid(category) {
           <p class="text-on-surface-variant text-sm mb-6 leading-relaxed line-clamp-2">${item.description || ''}</p>
           <button
             data-item-id="${item.id}"
-            class="add-to-cart-btn w-full py-3 rounded-xl border border-primary/20 text-primary font-label font-bold text-sm hover:bg-primary hover:text-on-primary transition-all duration-300 flex items-center justify-center gap-2 active:scale-95">
-            <span class="material-symbols-outlined text-sm">add</span>
-            Add to Cart
+            ${!isAvailable ? 'disabled' : ''}
+            class="add-to-cart-btn w-full py-3 rounded-xl border border-primary/20 text-primary font-label font-bold text-sm hover:bg-primary hover:text-on-primary transition-all duration-300 flex items-center justify-center gap-2 active:scale-95 ${!isAvailable ? 'opacity-50 cursor-not-allowed' : ''}"
+            ${!isAvailable ? 'onclick="showToast(\'This item is currently unavailable\', \'warning\'); return;"' : ''}>
+            <span class="material-symbols-outlined text-sm">${isAvailable ? 'add' : 'block'}</span>
+            ${isAvailable ? 'Add to Cart' : 'Unavailable'}
           </button>
         </div>
       </div>`;
@@ -207,7 +273,7 @@ function renderMenuGrid(category) {
 
 function handleMenuClick(e) {
   const btn = e.target.closest('.add-to-cart-btn');
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   const currentMenu = AppState.ui.menuLoaded ? window.LIVE_MENU : MENU;
   const item = currentMenu.find(i => i.id === btn.dataset.itemId);
   if (!item) return;
@@ -330,7 +396,7 @@ function addToCart(item, variant = null, qty = 1) {
   persistCartToStorage();
   renderCartDrawer();
   updateCartBadge(true);
-  showToast(`${itemName} added ✓`, 'success');
+  showToast(`${itemName} added`, 'success');
 }
 
 function removeFromCart(cartId) {
@@ -411,7 +477,6 @@ function renderCartDrawer() {
   if (subtotalEl) subtotalEl.textContent = `${CONFIG.CURRENCY} ${subtotal.toLocaleString()}`;
   if (totalEl) totalEl.textContent = `${CONFIG.CURRENCY} ${total.toLocaleString()}`;
 
-  // Update place order button total
   const orderBtnText = document.getElementById('order-btn-text');
   if (orderBtnText) orderBtnText.textContent = `Place Order (${CONFIG.CURRENCY} ${total.toLocaleString()})`;
 }
@@ -436,7 +501,7 @@ function updateCartBadge(animate = false) {
     badge.textContent = count > 99 ? '99+' : count;
     if (animate) {
       badge.classList.remove('badge-pulse');
-      void badge.offsetWidth; // reflow
+      void badge.offsetWidth;
       badge.classList.add('badge-pulse');
     }
   }
@@ -459,6 +524,10 @@ function closeCartDrawer() {
 
 // ===================== CHECKOUT =====================
 function openCheckout() {
+  if (!AppState.isOpen) {
+    showToast('Restaurant is currently closed', 'warning');
+    return;
+  }
   if (AppState.cart.items.length === 0) {
     showToast('Your cart is empty — add items first', 'warning');
     return;
@@ -476,7 +545,6 @@ function closeCheckout() {
   modal.style.display = 'none';
   document.body.style.overflow = '';
   AppState.ui.checkoutOpen = false;
-  // Reset form errors
   clearAllErrors();
 }
 
@@ -494,12 +562,11 @@ function validateForm() {
     valid = false;
   }
 
-  // Phone: must be non-empty and contain only digits, +, -
   if (!phone) {
     showFieldError('field-phone', 'error-phone', 'Phone number is required');
     valid = false;
   } else if (!/^[0-9+\-]+$/.test(phone)) {
-    showFieldError('field-phone', 'error-phone', 'Only digits, + and - are allowed (no spaces)');
+    showFieldError('field-phone', 'error-phone', 'Only digits, + and - are allowed');
     valid = false;
   } else if (phone.replace(/[+\-]/g, '').length < 7) {
     showFieldError('field-phone', 'error-phone', 'Phone number is too short');
@@ -564,7 +631,7 @@ function buildOrder(formData) {
         subtotal: i.price * i.qty
       }))
     ),
-    Total: total,          // number — includes delivery fee
+    Total: total,
     Notes: formData.get('notes').trim() || '',
     Status: 'Pending'
   };
@@ -576,9 +643,13 @@ async function handleFormSubmit(e) {
   if (AppState.ui.isSubmitting) return;
   if (!validateForm()) return;
 
+  if (!AppState.isOpen) {
+    showToast('Restaurant is currently closed. Please try again later.', 'warning');
+    return;
+  }
+
   const formData = new FormData(document.getElementById('checkout-form'));
   const order = buildOrder(formData);
-  // Inject security key
   order.apiKey = CONFIG.API_KEY;
 
   setLoadingState(true);
@@ -604,16 +675,14 @@ async function handleFormSubmit(e) {
       throw new Error(data.message || 'Server returned an error');
     }
   } catch (err) {
-    console.error('Order submission failed natively:', err);
+    console.error('Order submission failed:', err);
     
-    // If it's a network failure or CORS block (e.g., offline), we queue it.
-    // If it's a server logic error (e.g. Invalid API Key), we don't queue.
     if (err instanceof TypeError || err.message === 'Failed to fetch') {
       queueFailedOrder(order);
       onOrderSuccess(order.OrderID);
       showToast('Order saved! Will finish syncing when online.', 'info');
     } else {
-      showToast('Backend Error: ' + err.message, 'error');
+      showToast('Error: ' + err.message, 'error');
     }
   } finally {
     setLoadingState(false);
@@ -645,6 +714,13 @@ async function processFailedOrders() {
   const stillFailed = [];
   
   for (const order of queue) {
+    order.retryCount = (order.retryCount || 0) + 1;
+    
+    if (order.retryCount > CONFIG.MAX_RETRY_COUNT) {
+      console.error(`Dropping order ${order.OrderID} after ${CONFIG.MAX_RETRY_COUNT} failed retries.`);
+      continue;
+    }
+    
     try {
       const res = await fetch(CONFIG.GAS_URL, {
         method: 'POST',
@@ -652,23 +728,19 @@ async function processFailedOrders() {
         body: JSON.stringify(order)
       });
       const data = await res.json();
-      if (data.status !== 'success') {
+      if (data.status !== 'success' && data.message !== 'Duplicate order ignored') {
         throw new Error(data.message || 'Retry failed');
       }
       console.log(`Queued order ${order.OrderID} successfully synced`);
     } catch (e) {
-      console.warn(`Retry failed for ${order.OrderID}`, e);
-      order.retryCount = (order.retryCount || 0) + 1;
-      if (order.retryCount <= 5) {
-        stillFailed.push(order);
-      } else {
-        console.error(`Permanently dropping order ${order.OrderID} after 5 failed retries.`);
-      }
+      console.warn(`Retry ${order.retryCount}/${CONFIG.MAX_RETRY_COUNT} failed for ${order.OrderID}`, e);
+      stillFailed.push(order);
     }
   }
   
   if (stillFailed.length > 0) {
     localStorage.setItem('jirgah_failed_orders', JSON.stringify(stillFailed));
+    setTimeout(processFailedOrders, CONFIG.RETRY_DELAY_MS);
   } else {
     localStorage.removeItem('jirgah_failed_orders');
   }
@@ -694,7 +766,7 @@ function onOrderSuccess(orderId) {
   closeCheckout();
   clearCart();
   showSuccessScreen(orderId);
-  showToast('Order placed! 🎉', 'success');
+  showToast('Order placed!', 'success');
 }
 
 function clearCart() {
@@ -720,11 +792,171 @@ function resetForNewOrder() {
   document.getElementById('menu').scrollIntoView({ behavior: 'smooth' });
 }
 
+// ===================== ORDER TRACKING =====================
+let trackingLock = false;
+
+async function handleTrackOrderSubmit() {
+  if (trackingLock) return;
+  trackingLock = true;
+  setTimeout(() => { trackingLock = false; }, 2000);
+
+  const orderIdInput = document.getElementById('track-order-id').value.trim().toUpperCase();
+  const phoneInput = document.getElementById('track-phone').value.trim();
+
+  document.getElementById('track-order-id').value = orderIdInput;
+
+  if (!orderIdInput || !phoneInput) {
+    showToast('Please enter both Order ID and Phone number', 'warning');
+    trackingLock = false;
+    return;
+  }
+
+  const btn = document.getElementById('track-order-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="material-symbols-outlined animate-spin">progress_activity</span>';
+
+  const orderId = orderIdInput;
+  const phone = phoneInput;
+
+  try {
+    const res = await fetch(`${CONFIG.GAS_URL}?orderId=${encodeURIComponent(orderId)}&phone=${encodeURIComponent(phone)}`);
+    const data = await res.json();
+
+    if (data.status === 'success' && data.order) {
+      showTrackingResult(data.order);
+    } else {
+      document.getElementById('tracking-result-content').innerHTML = `
+        <div class="text-center py-8">
+          <span class="material-symbols-outlined text-6xl text-error mb-4">search_off</span>
+          <h4 class="text-lg font-bold text-on-surface mb-2">Order Not Found</h4>
+          <p class="text-sm text-on-surface-variant">Please check your Order ID and phone number and try again.</p>
+        </div>
+      `;
+      document.getElementById('tracking-result-modal').classList.remove('hidden');
+      document.getElementById('tracking-result-modal').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    }
+  } catch (err) {
+    showToast('Failed to track order. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span class="material-symbols-outlined">search</span> Track Order';
+  }
+}
+
+function showTrackingResult(order) {
+  const modal = document.getElementById('tracking-result-modal');
+  const content = document.getElementById('tracking-result-content');
+
+  let historyHtml = '';
+  if (order.StatusHistory && order.StatusHistory.length > 0) {
+    historyHtml = `
+      <div class="mt-6">
+        <h4 class="text-sm font-bold text-primary mb-4">Order Timeline</h4>
+        <div class="space-y-4">
+          ${order.StatusHistory.map((h, idx) => {
+            const stepIndex = STATUS_STEPS.findIndex(s => s.key === h.status);
+            const isActive = idx === order.StatusHistory.length - 1;
+            return `
+              <div class="flex items-start gap-4">
+                <div class="flex flex-col items-center">
+                  <div class="w-8 h-8 rounded-full flex items-center justify-center ${isActive ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-primary'}">
+                    <span class="material-symbols-outlined text-sm">${STATUS_STEPS[stepIndex]?.icon || 'check'}</span>
+                  </div>
+                  ${idx < order.StatusHistory.length - 1 ? '<div class="w-0.5 h-8 bg-primary/30"></div>' : ''}
+                </div>
+                <div class="flex-1 pb-4">
+                  <p class="font-semibold text-sm">${h.status}</p>
+                  <p class="text-xs text-on-surface-variant">${formatTrackingTime(h.time)}</p>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  content.innerHTML = `
+    <div class="text-center mb-6">
+      <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center ${getStatusBgClass(order.Status)}">
+        <span class="material-symbols-outlined text-3xl">${getStatusIcon(order.Status)}</span>
+      </div>
+      <h3 class="text-xl font-bold mt-4">${order.Status}</h3>
+      <p class="text-sm text-on-surface-variant mt-1">Order #${order.OrderID}</p>
+    </div>
+    <div class="bg-surface-container-low rounded-xl p-4 mb-4">
+      <div class="flex justify-between items-center">
+        <span class="text-sm text-on-surface-variant">Customer</span>
+        <span class="text-sm font-semibold">${order.CustomerName}</span>
+      </div>
+      <div class="flex justify-between items-center mt-2">
+        <span class="text-sm text-on-surface-variant">Total</span>
+        <span class="text-sm font-bold text-primary">${CONFIG.CURRENCY} ${Number(order.Total).toLocaleString()}</span>
+      </div>
+      ${order.itemCount ? `
+      <div class="flex justify-between items-center mt-2">
+        <span class="text-sm text-on-surface-variant">Items</span>
+        <span class="text-sm font-semibold">${order.itemCount} item${order.itemCount > 1 ? 's' : ''}</span>
+      </div>
+      ` : ''}
+    </div>
+    ${historyHtml}
+    ${order.LastUpdated ? `
+    <p class="text-xs text-on-surface-variant/60 text-center mt-4">
+      Last updated: ${formatTrackingTime(order.LastUpdated)}
+    </p>
+    ` : ''}
+  `;
+
+  modal.classList.remove('hidden');
+  modal.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+}
+
+function closeTrackingModal() {
+  const modal = document.getElementById('tracking-result-modal');
+  modal.classList.add('hidden');
+  modal.style.display = 'none';
+  document.body.style.overflow = '';
+}
+
+function getStatusBgClass(status) {
+  if (status === 'Delivered') return 'bg-green-500/20 text-green-400';
+  if (status === 'Cancelled') return 'bg-red-500/20 text-red-400';
+  if (status === 'Out for Delivery') return 'bg-blue-500/20 text-blue-400';
+  if (status === 'Preparing') return 'bg-orange-500/20 text-orange-400';
+  if (status === 'Accepted') return 'bg-yellow-500/20 text-yellow-400';
+  return 'bg-surface-container-high text-on-surface-variant';
+}
+
+function getStatusIcon(status) {
+  if (status === 'Delivered') return 'check_circle';
+  if (status === 'Cancelled') return 'cancel';
+  if (status === 'Out for Delivery') return 'delivery_dining';
+  if (status === 'Preparing') return 'restaurant';
+  if (status === 'Accepted') return 'thumb_up';
+  return 'receipt';
+}
+
+function formatTrackingTime(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleString('en-PK', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch { return ts; }
+}
+
 // ===================== LOCAL STORAGE =====================
 function persistCartToStorage() {
   try {
     localStorage.setItem('jirgah_cart', JSON.stringify(AppState.cart.items));
-  } catch (e) { /* ignore storage errors */ }
+  } catch (e) {}
 }
 
 function hydrateCartFromStorage() {
@@ -732,11 +964,10 @@ function hydrateCartFromStorage() {
     const stored = localStorage.getItem('jirgah_cart');
     if (!stored) return;
     const items = JSON.parse(stored);
-    // Validate: each item must have required fields
     if (!Array.isArray(items)) return;
     AppState.cart.items = items.filter(i => i.cartId && i.name && i.price && i.qty);
     recalculateCart();
-  } catch (e) { /* ignore parse errors */ }
+  } catch (e) {}
 }
 
 // ===================== TOAST SYSTEM =====================
@@ -758,7 +989,6 @@ function showToast(message, type = 'success') {
     <span class="text-sm font-body flex-1">${message}</span>`;
   container.appendChild(toast);
 
-  // Auto-dismiss after 4500ms
   setTimeout(() => {
     toast.classList.remove('toast-in');
     toast.classList.add('toast-out');

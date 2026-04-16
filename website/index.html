@@ -70,6 +70,12 @@
   </div>
 </header>
 
+<!-- ===================== CLOSED BANNER ===================== -->
+<div id="closed-banner" class="fixed top-0 left-0 right-0 z-[200] bg-red-600 text-white py-3 px-4 text-center font-bold text-sm hidden">
+  <span class="material-symbols-outlined text-sm align-middle mr-2">info</span>
+  We're currently closed. You can browse the menu, but orders are not being accepted.
+</div>
+
 <!-- ===================== HERO ===================== -->
 <section class="relative min-h-screen flex items-center pt-20 overflow-hidden">
   <div class="absolute inset-0 z-0">
@@ -105,6 +111,25 @@
   </div>
   <div class="absolute bottom-12 left-1/2 -translate-x-1/2 z-20 animate-bounce">
     <span class="material-symbols-outlined text-primary/50 text-4xl">expand_more</span>
+  </div>
+</section>
+
+<!-- ===================== TRACK ORDER SECTION ===================== -->
+<section class="bg-surface-container-low py-12 px-6 md:px-8 border-y border-white/5">
+  <div class="max-w-xl mx-auto text-center">
+    <h3 class="font-headline text-2xl font-bold text-primary mb-2">Track Your Order</h3>
+    <p class="text-on-surface-variant text-sm mb-6">Enter your Order ID and Phone number to check your order status</p>
+    <form id="track-form" class="flex flex-col sm:flex-row gap-3">
+      <input type="text" id="track-order-id" placeholder="Order ID (e.g. JR-20260416-1234)" required
+        class="flex-1 bg-surface-container-highest border-none rounded-lg px-4 py-3 text-on-surface placeholder:text-on-surface-variant/40 text-sm font-mono"/>
+      <input type="tel" id="track-phone" placeholder="Phone number" required
+        class="flex-1 bg-surface-container-highest border-none rounded-lg px-4 py-3 text-on-surface placeholder:text-on-surface-variant/40 text-sm"/>
+      <button type="submit" id="track-order-btn"
+        class="px-6 py-3 bg-primary text-on-primary font-bold text-sm rounded-lg hover:brightness-110 transition-all flex items-center justify-center gap-2">
+        <span class="material-symbols-outlined">search</span>
+        Track
+      </button>
+    </form>
   </div>
 </section>
 
@@ -252,6 +277,24 @@
       class="px-10 py-4 bg-primary text-on-primary font-label font-bold text-lg rounded-xl shadow-lg shadow-primary/20 active:scale-95 transition-all hover:brightness-110">
       Place Another Order
     </button>
+  </div>
+</div>
+
+<!-- ===================== TRACKING RESULT MODAL ===================== -->
+<div id="tracking-result-modal" class="fixed inset-0 z-[140] flex items-center justify-center px-4 hidden" style="display:none!important;">
+  <div class="absolute inset-0 bg-black/80 backdrop-blur-md"></div>
+  <div class="relative bg-surface-container-low w-full max-w-md rounded-2xl overflow-hidden shadow-2xl border border-outline-variant/10 mx-auto">
+    <div class="p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="font-headline text-xl font-bold text-primary">Order Status</h3>
+        <button id="close-tracking-btn" class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div id="tracking-result-content">
+        <!-- Populated by JS -->
+      </div>
+    </div>
   </div>
 </div>
 
