@@ -4,12 +4,16 @@
 'use strict';
 
 // ===================== CONFIG =====================
-const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbyvcqmG61-nZ8iU8b4u5M3riIPcI-X50-s90a1TjjOT2NfHDOJlVjw_V7EXJZWHp9-M9A/exec',
+const CONFIG = window.JIRGAH_CONFIG || {
+  GAS_URL: '',
+  API_KEY: '',
   REFRESH_INTERVAL_MS: 30000,
-  API_KEY: 'JIRGAH_SECURE_2026',
-  ADMIN_PASS_HASH: 'YWRtaW4='
+  ADMIN_PASSWORD: 'admin'
 };
+
+if (!CONFIG.GAS_URL || !CONFIG.API_KEY) {
+  console.error('Missing configuration. Please check config/config.js');
+}
 
 const ORDER_STATUS = {
   ALL: ['Pending', 'Accepted', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'],
@@ -74,7 +78,7 @@ function bindEvents() {
   document.getElementById('login-form').addEventListener('submit', e => {
     e.preventDefault();
     const pw = document.getElementById('admin-password').value;
-    if (btoa(pw) === CONFIG.ADMIN_PASS_HASH) {
+    if (pw === CONFIG.ADMIN_PASSWORD) {
       sessionStorage.setItem('jirgah_admin_auth', 'true');
       unlockDashboard();
     } else {

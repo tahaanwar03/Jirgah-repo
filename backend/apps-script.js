@@ -1,7 +1,13 @@
 // backend/apps-script.js — Jirgah Google Apps Script Backend
 // Phase 9: Order Lifecycle, Tracking, Operational Controls
 
-const API_KEY = "JIRGAH_SECURE_2026";
+// ===== CONFIG =====
+const BACKEND_CONFIG = {
+  API_KEY: "JIRGAH_SECURE_2026"
+};
+
+const API_KEY = BACKEND_CONFIG.API_KEY;
+
 const SHEET_NAMES = {
   ORDERS_MAIN: 'Orders',
   ORDERS_QUEUE: 'Orders_Queue',

@@ -4,14 +4,19 @@
 'use strict';
 
 // ===================== CONFIG =====================
-const CONFIG = {
-  GAS_URL: 'https://script.google.com/macros/s/AKfycbyvcqmG61-nZ8iU8b4u5M3riIPcI-X50-s90a1TjjOT2NfHDOJlVjw_V7EXJZWHp9-M9A/exec',
-  API_KEY: 'JIRGAH_SECURE_2026',
+const CONFIG = window.JIRGAH_CONFIG || {
+  GAS_URL: '',
+  API_KEY: '',
   DELIVERY_FEE: 100,
   CURRENCY: 'Rs.',
   MAX_RETRY_COUNT: 5,
   RETRY_DELAY_MS: 5000,
+  RESTAURANT_NAME: 'Jirgah'
 };
+
+if (!CONFIG.GAS_URL || !CONFIG.API_KEY) {
+  console.error('Missing configuration. Please check config/config.js');
+}
 
 const CATEGORIES = [
   'All', 'Bar B Q', 'Rolls', 'Broasts', 'Sandwiches', 'Burgers', 'Parathas',
