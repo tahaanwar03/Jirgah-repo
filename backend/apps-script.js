@@ -1,13 +1,13 @@
 // backend/apps-script.js — Jirgah Google Apps Script Backend
-// Phase 9: Order Lifecycle, Tracking, Operational Controls
+// Phase 10: Production Hardening
 
 // ===== CONFIG =====
 const BACKEND_CONFIG = {
   API_KEY: "JIRGAH_SECURE_2026"
 };
-
 const API_KEY = BACKEND_CONFIG.API_KEY;
 
+// ===== SHEET CONFIG =====
 const SHEET_NAMES = {
   ORDERS_MAIN: 'Orders',
   ORDERS_QUEUE: 'Orders_Queue',
@@ -17,14 +17,14 @@ const SHEET_NAMES = {
   SYSTEM: 'SystemSettings'
 };
 
-const ORDER_STATUS = [
-  'Pending',
-  'Accepted',
-  'Preparing',
-  'Out for Delivery',
-  'Delivered',
-  'Cancelled'
-];
+const COLUMNS = {
+  ORDER: ['OrderID', 'Timestamp', 'CustomerName', 'Phone', 'Address', 'Items', 'Total', 'Notes', 'Status', 'LockedBy', 'LockedAt', 'LastUpdated', 'StatusHistory'],
+  MENU: ['ID', 'Category', 'Name', 'Description', 'Price', 'Image', 'Badge', 'Variants_JSON', 'Version', 'LastUpdated', 'Available'],
+  LOGS: ['Timestamp', 'Type', 'Message'],
+  SYSTEM: ['Key', 'Value']
+};
+
+const ORDER_STATUS = ['Pending', 'Accepted', 'Preparing', 'Out for Delivery', 'Delivered', 'Cancelled'];
 
 const STATUS_FLOW = {
   'Pending': ['Accepted', 'Cancelled'],
@@ -35,114 +35,121 @@ const STATUS_FLOW = {
   'Cancelled': []
 };
 
-const COLUMNS = {
-  ORDER: ['OrderID', 'Timestamp', 'CustomerName', 'Phone', 'Address', 'Items', 'Total', 'Notes', 'Status', 'LockedBy', 'LockedAt', 'LastUpdated', 'StatusHistory'],
-  MENU: ['ID', 'Category', 'Name', 'Description', 'Price', 'Image', 'Badge', 'Variants_JSON', 'Version', 'LastUpdated', 'Available'],
-  SYSTEM: ['Key', 'Value']
+const SYSTEM_DEFAULTS = {
+  isOpen: 'false',
+  restaurantName: 'Jirgah'
 };
 
-const COL_INDEX = {
-  ORDER_ID: 1,
-  TIMESTAMP: 2,
-  CUSTOMER_NAME: 3,
-  PHONE: 4,
-  ADDRESS: 5,
-  ITEMS: 6,
-  TOTAL: 7,
-  NOTES: 8,
-  STATUS: 9,
-  LOCKED_BY: 10,
-  LOCKED_AT: 11,
-  LAST_UPDATED: 12,
-  STATUS_HISTORY: 13
+const CONFIG = {
+  ARCHIVE_THRESHOLD: 3000,
+  ARCHIVE_BATCH_SIZE: 1000,
+  CACHE_TTL: 30,
+  RATE_LIMIT_WINDOW: 10,
+  RATE_LIMIT_MAX: 5
 };
 
-const ARCHIVE_THRESHOLD = 3000;
-const ARCHIVE_BATCH_SIZE = 1000;
-const CACHE_TTL = 30;
-const RATE_LIMIT_WINDOW = 10;
-const RATE_LIMIT_MAX = 5;
+// ===== RESPONSE HELPER =====
+function respond(success, message, data = {}) {
+  return ContentService.createTextOutput(JSON.stringify({
+    status: success ? 'success' : 'error',
+    message: message,
+    data: data
+  })).setMimeType(ContentService.MimeType.JSON);
+}
 
-function ensureSheetsExist() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  if (!ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.ORDERS_MAIN);
-    sheet.appendRow(COLUMNS.ORDER);
-    sheet.getRange('A:A').setNumberFormat('@');
-    sheet.getRange('B:B').setNumberFormat('yyyy-mm-dd HH:mm:ss');
-    sheet.getRange('D:D').setNumberFormat('@');
-    sheet.getRange('G:G').setNumberFormat('#,##0.00');
-  } else {
-    const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    if (headers.length < COLUMNS.ORDER.length) {
-      const missingCols = COLUMNS.ORDER.filter((col, idx) => !headers.includes(col));
-      missingCols.forEach((col, i) => {
-        sheet.getRange(1, headers.length + i + 1).setValue(col);
-      });
-    }
-  }
-  
-  if (!ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.ORDERS_QUEUE);
-    sheet.appendRow(COLUMNS.ORDER);
-    sheet.getRange('A:A').setNumberFormat('@');
-    sheet.getRange('B:B').setNumberFormat('yyyy-mm-dd HH:mm:ss');
-    sheet.getRange('D:D').setNumberFormat('@');
-    sheet.getRange('G:G').setNumberFormat('#,##0.00');
-  }
-  
-  if (!ss.getSheetByName(SHEET_NAMES.ORDERS_ARCHIVE)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.ORDERS_ARCHIVE);
-    sheet.appendRow(COLUMNS.ORDER);
-    sheet.getRange('A:A').setNumberFormat('@');
-    sheet.getRange('B:B').setNumberFormat('yyyy-mm-dd HH:mm:ss');
-    sheet.getRange('D:D').setNumberFormat('@');
-    sheet.getRange('G:G').setNumberFormat('#,##0.00');
-  }
-  
-  if (!ss.getSheetByName(SHEET_NAMES.MENU)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.MENU);
-    sheet.appendRow(COLUMNS.MENU);
-    sheet.getRange('E:E').setNumberFormat('#,##0.00');
-  } else {
-    const sheet = ss.getSheetByName(SHEET_NAMES.MENU);
-    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    if (!headers.includes('Available')) {
-      sheet.getRange(1, headers.length + 1).setValue('Available');
-    }
-  }
-  
-  if (!ss.getSheetByName(SHEET_NAMES.LOGS)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.LOGS);
-    sheet.appendRow(['Timestamp', 'Type', 'Message', 'Payload']);
-    sheet.getRange('A:A').setNumberFormat('yyyy-mm-dd HH:mm:ss');
-  }
-  
-  if (!ss.getSheetByName(SHEET_NAMES.SYSTEM)) {
-    const sheet = ss.insertSheet(SHEET_NAMES.SYSTEM);
-    sheet.appendRow(COLUMNS.SYSTEM);
-    sheet.appendRow(['isOpen', 'true']);
-    sheet.appendRow(['restaurantName', 'Jirgah']);
+// ===== SAFE JSON PARSING =====
+function safeParse(json) {
+  try {
+    return JSON.parse(json || '[]');
+  } catch {
+    return [];
   }
 }
 
-function getSystemSetting(key) {
+// ===== COLUMN MAPPER =====
+function getColumnMap(sheet) {
   try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAMES.SYSTEM);
-    if (!sheet) return null;
-    const data = sheet.getDataRange().getValues();
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][0] === key) {
-        return data[i][1];
-      }
-    }
-    return null;
-  } catch (e) {
-    return null;
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const map = {};
+    headers.forEach((h, i) => { map[h] = i + 1; });
+    return map;
+  } catch {
+    return {};
   }
+}
+
+// ===== AUTO-BOOTSTRAP SHEETS =====
+function ensureSheetsExist() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  Object.values(SHEET_NAMES).forEach(name => {
+    let sheet = ss.getSheetByName(name);
+    
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+    }
+    
+    let expectedHeaders = [];
+    if (name === SHEET_NAMES.ORDERS_MAIN || name === SHEET_NAMES.ORDERS_QUEUE || name === SHEET_NAMES.ORDERS_ARCHIVE) {
+      expectedHeaders = COLUMNS.ORDER;
+    } else if (name === SHEET_NAMES.MENU) {
+      expectedHeaders = COLUMNS.MENU;
+    } else if (name === SHEET_NAMES.LOGS) {
+      expectedHeaders = COLUMNS.LOGS;
+    } else if (name === SHEET_NAMES.SYSTEM) {
+      expectedHeaders = COLUMNS.SYSTEM;
+    }
+    
+    if (expectedHeaders.length > 0) {
+      const existing = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      expectedHeaders.forEach((col, i) => {
+        if (!existing[i] || existing[i] !== col) {
+          sheet.getRange(1, i + 1).setValue(col);
+        }
+      });
+    }
+  });
+  
+  // Set number formats for Orders sheets
+  ['Orders', 'Orders_Queue', 'Orders_Archive'].forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (sheet) {
+      sheet.getRange('A:A').setNumberFormat('@');
+      sheet.getRange('B:B').setNumberFormat('yyyy-mm-dd HH:mm:ss');
+      sheet.getRange('D:D').setNumberFormat('@');
+      sheet.getRange('G:G').setNumberFormat('#,##0.00');
+    }
+  });
+  
+  // Menu price format
+  const menuSheet = ss.getSheetByName(SHEET_NAMES.MENU);
+  if (menuSheet) {
+    const col = getColumnMap(menuSheet);
+    if (col.Price) {
+      menuSheet.getRange(2, col.Price, menuSheet.getLastRow(), 1).setNumberFormat('#,##0.00');
+    }
+  }
+}
+
+// ===== SYSTEM SETTINGS AUTO-INIT =====
+function getSystemSetting(key) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAMES.SYSTEM);
+  
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEET_NAMES.SYSTEM);
+    sheet.appendRow(COLUMNS.SYSTEM);
+  }
+  
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === key) return data[i][1];
+  }
+  
+  const value = SYSTEM_DEFAULTS[key] || '';
+  sheet.appendRow([key, value]);
+  return value;
 }
 
 function setSystemSetting(key, value) {
@@ -162,29 +169,24 @@ function setSystemSetting(key, value) {
     }
     sheet.appendRow([key, value]);
   } catch (e) {
-    logError('setSystemSetting failed', { key, value, error: e.toString() }, 'ERROR');
+    logError('SET_SYSTEM_ERROR', key + ': ' + e.message);
   }
 }
 
-function logError(message, payload, type = 'ERROR') {
+// ===== LOGGING =====
+function logError(type, message) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let logSheet = ss.getSheetByName(SHEET_NAMES.LOGS);
-    if (!logSheet) {
-      logSheet = ss.insertSheet(SHEET_NAMES.LOGS);
-      logSheet.appendRow(['Timestamp', 'Type', 'Message', 'Payload']);
+    let sheet = ss.getSheetByName(SHEET_NAMES.LOGS);
+    if (!sheet) {
+      sheet = ss.insertSheet(SHEET_NAMES.LOGS);
+      sheet.appendRow(COLUMNS.LOGS);
     }
-    logSheet.appendRow([
-      new Date().toISOString(),
-      type,
-      message,
-      JSON.stringify(payload || {}).substring(0, 500)
-    ]);
-  } catch (e) {
-    console.error('Logging failed:', e);
-  }
+    sheet.appendRow([new Date().toISOString(), type, String(message).slice(0, 500)]);
+  } catch {}
 }
 
+// ===== CACHE =====
 function getCache() {
   return CacheService.getScriptCache();
 }
@@ -192,15 +194,8 @@ function getCache() {
 function normalizePhone(phone) {
   if (!phone) return '';
   let digits = String(phone).replace(/[^0-9]/g, '');
-  
-  if (digits.startsWith('92')) {
-    digits = '0' + digits.slice(2);
-  }
-  
-  if (digits.length > 11) {
-    digits = digits.slice(-11);
-  }
-  
+  if (digits.startsWith('92')) digits = '0' + digits.slice(2);
+  if (digits.length > 11) digits = digits.slice(-11);
   return digits;
 }
 
@@ -208,37 +203,28 @@ function checkRateLimit(ip) {
   const cache = getCache();
   const key = 'rate_' + (ip || 'unknown');
   const count = Number(cache.get(key)) || 0;
-  
-  if (count > RATE_LIMIT_MAX) {
-    return { allowed: false, count };
-  }
-  
-  cache.put(key, String(count + 1), RATE_LIMIT_WINDOW);
+  if (count > CONFIG.RATE_LIMIT_MAX) return { allowed: false, count };
+  cache.put(key, String(count + 1), CONFIG.RATE_LIMIT_WINDOW);
   return { allowed: true, count: count + 1 };
 }
 
 function checkIdempotency(orderId) {
   const cache = getCache();
   const key = 'idemp_' + orderId;
-  const existing = cache.get(key);
-  
-  if (existing) {
-    return true;
-  }
-  
+  if (cache.get(key)) return true;
   cache.put(key, '1', 300);
   return false;
 }
 
-function mapRows(dataRows) {
+// ===== MAP ROWS =====
+function mapRows(dataRows, type) {
+  if (!dataRows || dataRows.length < 2) return [];
   const headers = dataRows[0];
   const normalizeMap = {
     'Order ID': 'OrderID',
     'Customer Name': 'CustomerName',
-    'Order JSON': 'Items',
-    'StatusHistory': 'StatusHistory'
+    'Order JSON': 'Items'
   };
-
   return dataRows.slice(1).map(row => {
     const obj = {};
     headers.forEach((h, i) => {
@@ -249,134 +235,40 @@ function mapRows(dataRows) {
   });
 }
 
-function mapRowToOrder(row) {
+function mapOrderRow(row, col) {
   return {
-    OrderID: row[0] || '',
-    Timestamp: row[1] || '',
-    CustomerName: row[2] || '',
-    Phone: String(row[3] || '').replace(/^'+/, ''),
-    Address: row[4] || '',
-    Items: row[5] || '[]',
-    Total: row[6] || 0,
-    Notes: row[7] || '',
-    Status: row[8] || 'Pending',
-    LockedBy: row[9] || '',
-    LockedAt: row[10] || '',
-    LastUpdated: row[11] || '',
-    StatusHistory: row[12] || '[]'
+    OrderID: row[col.OrderID] || '',
+    Timestamp: row[col.Timestamp] || '',
+    CustomerName: row[col.CustomerName] || '',
+    Phone: String(row[col.Phone] || '').replace(/^'+/, ''),
+    Address: row[col.Address] || '',
+    Items: row[col.Items] || '[]',
+    Total: row[col.Total] || 0,
+    Notes: row[col.Notes] || '',
+    Status: row[col.Status] || 'Pending',
+    LockedBy: row[col.LockedBy] || '',
+    LockedAt: row[col.LockedAt] || '',
+    LastUpdated: row[col.LastUpdated] || '',
+    StatusHistory: row[col.StatusHistory] || '[]'
   };
 }
 
-function createJsonResponse(payload) {
-  return ContentService.createTextOutput(JSON.stringify(payload))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function doGet(e) {
-  ensureSheetsExist();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const params = e.parameter || {};
-  
-  try {
-    if (params.orderId && params.phone) {
-      return handleTrackOrder(params);
-    }
-
-    const cache = getCache();
-    const lastUpdated = params.lastUpdated;
-    let cacheKey = 'orders_all';
-    
-    const isOpenSetting = getSystemSetting('isOpen');
-    const restaurantName = getSystemSetting('restaurantName') || 'Jirgah';
-    const isOpen = isOpenSetting === null ? false : isOpenSetting !== 'false';
-    
-    if (lastUpdated) {
-      cacheKey = 'orders_since_' + lastUpdated;
-      const cached = cache.get(cacheKey);
-      if (cached) {
-        const response = JSON.parse(cached);
-        response.system = { isOpen, restaurantName };
-        return createJsonResponse(response);
-      }
-    } else {
-      const cached = cache.get('orders_all');
-      if (cached) {
-        const response = JSON.parse(cached);
-        response.system = { isOpen, restaurantName };
-        return createJsonResponse(response);
-      }
-    }
-
-    const ordersSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-    const menuSheet = ss.getSheetByName(SHEET_NAMES.MENU);
-
-    let ordersData = ordersSheet.getDataRange().getValues();
-    if (lastUpdated) {
-      const filterDate = new Date(lastUpdated);
-      ordersData = [ordersData[0]].concat(
-        ordersData.slice(1).filter(row => {
-          const lastUpd = row[COL_INDEX.LAST_UPDATED - 1];
-          return lastUpd && new Date(lastUpd) > filterDate;
-        })
-      );
-    }
-
-    const menuData = menuSheet.getDataRange().getValues();
-    const ordersArr = ordersData.length > 1 ? mapRows(ordersData) : [];
-    const menuArr = menuData.length > 1 ? mapRows(menuData) : [];
-
-    let menuVersion = cache.get('menu_version') || '0';
-    const menuItem = menuData.length > 1 ? menuData[1] : null;
-    if (menuItem && menuItem[8]) {
-      menuVersion = String(menuItem[8]);
-    }
-
-    const response = {
-      status: 'success',
-      orders: ordersArr,
-      menu: menuArr,
-      menuVersion: menuVersion,
-      lastUpdated: new Date().toISOString(),
-      system: { isOpen, restaurantName }
-    };
-
-    const cacheTtl = lastUpdated ? 10 : CACHE_TTL;
-    cache.put(cacheKey, JSON.stringify(response), cacheTtl);
-
-    return createJsonResponse(response);
-  } catch (err) {
-    logError('doGet failed', { error: err.toString(), params: e.parameter }, 'ERROR');
-    return createJsonResponse({ status: 'error', message: err.toString() });
-  }
-}
-
+// ===== ORDER TRACKING =====
 function handleTrackOrder(params) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+    const col = getColumnMap(sheet);
     const data = sheet.getDataRange().getValues();
-
+    
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
-      const storedPhone = normalizePhone(String(row[3] || '').replace(/^'+/, ''));
+      const storedPhone = normalizePhone(String(row[col.Phone - 1] || '').replace(/^'+/, ''));
       const inputPhone = normalizePhone(params.phone);
       
-      if (row[0] === params.orderId && storedPhone === inputPhone) {
-        const order = mapRowToOrder(row);
-        let statusHistory = [];
-        try {
-          statusHistory = JSON.parse(order.StatusHistory || '[]');
-        } catch (e) {
-          statusHistory = [];
-        }
-        
-        let itemCount = 0;
-        try {
-          const items = JSON.parse(order.Items || '[]');
-          itemCount = Array.isArray(items) ? items.length : 0;
-        } catch (e) {
-          itemCount = 0;
-        }
+      if (row[col.OrderID - 1] === params.orderId && storedPhone === inputPhone) {
+        const order = mapOrderRow(row, col);
+        let statusHistory = safeParse(order.StatusHistory);
         
         if (statusHistory.length === 0 && order.Status !== 'Pending') {
           statusHistory = [{ status: 'Pending', time: order.Timestamp }];
@@ -385,8 +277,9 @@ function handleTrackOrder(params) {
           }
         }
         
-        return createJsonResponse({
-          status: 'success',
+        const items = safeParse(order.Items);
+        
+        return respond(true, 'Order found', {
           order: {
             OrderID: order.OrderID,
             Status: order.Status,
@@ -394,111 +287,40 @@ function handleTrackOrder(params) {
             CustomerName: order.CustomerName,
             Total: order.Total,
             Timestamp: order.Timestamp,
-            itemCount: itemCount
+            LastUpdated: order.LastUpdated,
+            itemCount: items.length
           }
         });
       }
     }
-
-    return createJsonResponse({ status: 'not_found', message: 'Order not found' });
+    return respond(false, 'Order not found');
   } catch (err) {
-    logError('handleTrackOrder failed', { error: err.toString() }, 'ERROR');
-    return createJsonResponse({ status: 'error', message: err.toString() });
+    logError('TRACK_ERROR', err.message);
+    return respond(false, 'Server error');
   }
 }
 
-function doPost(e) {
-  ensureSheetsExist();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  
-  try {
-    const rawData = e.postData ? e.postData.contents : '{}';
-    const body = JSON.parse(rawData);
-
-    if (body.apiKey !== API_KEY) {
-      return createJsonResponse({ status: 'error', message: 'Invalid API Key' });
-    }
-
-    const ip = body.ip || 'unknown';
-    const rateCheck = checkRateLimit(ip);
-    if (!rateCheck.allowed) {
-      logError('Rate limit exceeded', { ip, count: rateCheck.count }, 'WARNING');
-      return createJsonResponse({ 
-        status: 'error', 
-        message: 'Too many requests. Please wait before trying again.' 
-      });
-    }
-
-    if (body.action === 'updateStatus') {
-      return handleUpdateStatus(ss, body);
-    }
-
-    if (body.action === 'deleteOrder') {
-      return handleDeleteOrder(ss, body);
-    }
-
-    if (body.action === 'updateMenu') {
-      return handleUpdateMenu(ss, body);
-    }
-
-    if (body.action === 'initMenu' && Array.isArray(body.items)) {
-      return handleInitMenu(ss, body);
-    }
-
-    if (body.action === 'acquireLock') {
-      return handleAcquireLock(ss, body);
-    }
-
-    if (body.action === 'releaseLock') {
-      return handleReleaseLock(ss, body);
-    }
-    
-    if (body.action === 'setSystem') {
-      return handleSetSystem(ss, body);
-    }
-    
-    if (body.action === 'toggleAvailability') {
-      return handleToggleAvailability(ss, body);
-    }
-
-    if (body.action === 'getAllowedStatuses') {
-      return handleGetAllowedStatuses(ss, body);
-    }
-
-    return handleCreateOrder(ss, body);
-    
-  } catch (err) {
-    logError('doPost failed', { error: err.toString() }, 'ERROR');
-    return createJsonResponse({ status: 'error', message: err.toString() });
-  }
-}
-
+// ===== ORDER OPERATIONS =====
 function handleCreateOrder(ss, body) {
-  if (!body.OrderID) {
-    return createJsonResponse({ status: 'error', message: 'OrderID is required' });
+  if (!body.OrderID || !body.CustomerName || !body.Phone) {
+    return respond(false, 'Missing required fields: OrderID, CustomerName, Phone');
+  }
+  
+  if (checkIdempotency(body.OrderID)) {
+    return respond(true, 'Duplicate order ignored', { orderId: body.OrderID });
   }
   
   const isOpen = getSystemSetting('isOpen');
   if (isOpen === 'false') {
-    return createJsonResponse({ 
-      status: 'error', 
-      message: 'Restaurant is currently closed. Orders are not being accepted.' 
-    });
+    return respond(false, 'Restaurant is currently closed');
   }
-
-  if (checkIdempotency(body.OrderID)) {
-    return createJsonResponse({ 
-      status: 'success', 
-      message: 'Duplicate order ignored', 
-      orderId: body.OrderID 
-    });
-  }
-
+  
   const queueSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE);
+  const col = getColumnMap(queueSheet);
   const now = new Date().toISOString();
-  const initialHistory = JSON.stringify([{ status: 'Pending', time: now }]);
-
-  queueSheet.appendRow([
+  const history = JSON.stringify([{ status: 'Pending', time: now }]);
+  
+  const row = [
     body.OrderID || '',
     body.Timestamp || now,
     body.CustomerName || '',
@@ -511,123 +333,91 @@ function handleCreateOrder(ss, body) {
     '',
     '',
     now,
-    initialHistory
-  ]);
-
-  return createJsonResponse({ status: 'success', orderId: body.OrderID });
+    history
+  ];
+  
+  if (col.OrderID) {
+    const nextRow = queueSheet.getLastRow() + 1;
+    row.forEach((val, i) => {
+      const colIdx = Object.values(col)[i];
+      if (colIdx) queueSheet.getRange(nextRow, colIdx).setValue(val);
+    });
+  } else {
+    queueSheet.appendRow(row);
+  }
+  
+  return respond(true, 'Order created', { orderId: body.OrderID });
 }
 
 function handleUpdateStatus(ss, body) {
   if (!ORDER_STATUS.includes(body.status)) {
-    return createJsonResponse({ 
-      status: 'error', 
-      message: 'Invalid status. Allowed: ' + ORDER_STATUS.join(', ') 
-    });
+    return respond(false, 'Invalid status');
   }
-
+  
   const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
-  let updated = false;
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.orderId) {
-      const currentStatus = data[i][COL_INDEX.STATUS - 1];
-      
-      if (body.status !== currentStatus && !ORDER_STATUS.includes(body.status)) {
-        return createJsonResponse({ 
-          status: 'error', 
-          message: 'Invalid status.' 
-        });
-      }
+    if (data[i][col.OrderID - 1] === body.orderId) {
+      const currentStatus = data[i][col.Status - 1];
       
       if (body.status !== currentStatus) {
         const allowedNext = STATUS_FLOW[currentStatus] || [];
-        
         if (!allowedNext.includes(body.status)) {
-          return createJsonResponse({ 
-            status: 'error', 
-            message: `Cannot change from "${currentStatus}" to "${body.status}". Allowed: ${allowedNext.join(', ') || 'none'}`
-          });
+          return respond(false, `Cannot change from "${currentStatus}" to "${body.status}"`);
         }
+        
+        const now = new Date().toISOString();
+        sheet.getRange(i + 1, col.Status).setValue(body.status);
+        sheet.getRange(i + 1, col.LastUpdated).setValue(now);
+        
+        let history = safeParse(data[i][col.StatusHistory - 1]);
+        history.push({ status: body.status, time: now });
+        sheet.getRange(i + 1, col.StatusHistory).setValue(JSON.stringify(history));
       }
       
-      const now = new Date().toISOString();
-      sheet.getRange(i + 1, COL_INDEX.STATUS).setValue(body.status);
-      sheet.getRange(i + 1, COL_INDEX.LAST_UPDATED).setValue(now);
-      
-      let history = [];
-      try {
-        history = JSON.parse(data[i][COL_INDEX.STATUS_HISTORY - 1] || '[]');
-      } catch (e) {
-        history = [];
-      }
-      history.push({ status: body.status, time: now });
-      sheet.getRange(i + 1, COL_INDEX.STATUS_HISTORY).setValue(JSON.stringify(history));
-      
-      updated = true;
-      break;
+      getCache().remove('orders_all');
+      return respond(true, 'Status updated');
     }
   }
-
-  getCache().remove('orders_all');
-
-  return createJsonResponse({ status: updated ? 'success' : 'error' });
-}
-
-function handleGetAllowedStatuses(ss, body) {
-  const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-  const data = sheet.getDataRange().getValues();
-
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.orderId) {
-      const currentStatus = data[i][8];
-      const allowedNext = STATUS_FLOW[currentStatus] || [];
-      return createJsonResponse({ 
-        status: 'success', 
-        currentStatus: currentStatus,
-        allowedNext: allowedNext,
-        allStatuses: ORDER_STATUS
-      });
-    }
-  }
-
-  return createJsonResponse({ status: 'error', message: 'Order not found' });
+  
+  return respond(false, 'Order not found');
 }
 
 function handleDeleteOrder(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
-  let deleted = false;
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.orderId) {
+    if (data[i][col.OrderID - 1] === body.orderId) {
       sheet.deleteRow(i + 1);
-      deleted = true;
-      break;
+      getCache().remove('orders_all');
+      return respond(true, 'Order deleted');
     }
   }
-
-  getCache().remove('orders_all');
-
-  return createJsonResponse({ status: deleted ? 'success' : 'error' });
+  return respond(false, 'Order not found');
 }
 
 function handleUpdateMenu(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.MENU);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
   let rowIndex = -1;
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.ID) {
+    if (data[i][col.ID - 1] === body.ID) {
       rowIndex = i + 1;
       break;
     }
   }
-
+  
   const version = new Date().getTime();
   const now = new Date().toISOString();
   const available = body.Available !== undefined ? body.Available : true;
-  const rowValues = [
+  
+  const rowData = [
     body.ID || '',
     body.Category || '',
     body.Name || '',
@@ -640,28 +430,34 @@ function handleUpdateMenu(ss, body) {
     now,
     available
   ];
-
+  
   if (rowIndex !== -1) {
-    sheet.getRange(rowIndex, 1, 1, rowValues.length).setValues([rowValues]);
+    rowData.forEach((val, i) => {
+      const colIdx = Object.values(col)[i];
+      if (colIdx) sheet.getRange(rowIndex, colIdx).setValue(val);
+    });
   } else {
-    sheet.appendRow(rowValues);
+    sheet.appendRow(rowData);
   }
-
+  
   getCache().remove('orders_all');
   getCache().put('menu_version', String(version), 300);
-
-  return createJsonResponse({ status: 'success', version: version });
+  
+  return respond(true, 'Menu updated', { version });
 }
 
 function handleInitMenu(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.MENU);
+  const col = getColumnMap(sheet);
   
   if (sheet.getLastRow() > 1) {
-    sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).clearContent();
+    const lastRow = sheet.getLastRow();
+    sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
   }
   
   const version = new Date().getTime();
   const now = new Date().toISOString();
+  
   const newRows = body.items.map(item => [
     item.ID || '',
     item.Category || '',
@@ -675,133 +471,246 @@ function handleInitMenu(ss, body) {
     now,
     true
   ]);
-
+  
   if (newRows.length > 0) {
     sheet.getRange(2, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
-
+  
   getCache().put('menu_version', String(version), 300);
   getCache().remove('orders_all');
-
-  return createJsonResponse({ status: 'success', version: version });
+  
+  return respond(true, 'Menu initialized', { version });
 }
 
 function handleToggleAvailability(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.MENU);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
-  let updated = false;
-  let newValue = true;
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.ID) {
-      const currentValue = data[i][10];
-      newValue = currentValue !== true && currentValue !== 'true';
-      sheet.getRange(i + 1, 11).setValue(newValue);
-      updated = true;
-      break;
+    if (data[i][col.ID - 1] === body.ID) {
+      const currentValue = data[i][col.Available - 1];
+      const newValue = currentValue !== true && currentValue !== 'true';
+      sheet.getRange(i + 1, col.Available).setValue(newValue);
+      getCache().remove('orders_all');
+      return respond(true, 'Availability toggled', { available: newValue });
     }
   }
-
-  getCache().remove('orders_all');
-
-  return createJsonResponse({ status: updated ? 'success' : 'error', available: newValue });
+  return respond(false, 'Item not found');
 }
 
 function handleSetSystem(ss, body) {
   if (body.key === 'isOpen') {
     setSystemSetting('isOpen', body.value ? 'true' : 'false');
     getCache().remove('orders_all');
-    return createJsonResponse({ 
-      status: 'success', 
-      isOpen: body.value 
-    });
+    return respond(true, 'System updated', { isOpen: body.value });
   }
-  
   setSystemSetting(body.key, body.value);
-  return createJsonResponse({ status: 'success' });
+  return respond(true, 'System updated');
+}
+
+function handleGetAllowedStatuses(ss, body) {
+  const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const col = getColumnMap(sheet);
+  const data = sheet.getDataRange().getValues();
+  
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][col.OrderID - 1] === body.orderId) {
+      const currentStatus = data[i][col.Status - 1];
+      const allowedNext = STATUS_FLOW[currentStatus] || [];
+      return respond(true, 'Statuses fetched', {
+        currentStatus,
+        allowedNext,
+        allStatuses: ORDER_STATUS
+      });
+    }
+  }
+  return respond(false, 'Order not found');
 }
 
 function handleAcquireLock(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
   const now = new Date().toISOString();
   const adminId = body.adminId || 'admin';
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.orderId) {
-      const currentLock = data[i][COL_INDEX.LOCKED_BY - 1];
-      const lockTime = data[i][COL_INDEX.LOCKED_AT - 1] ? new Date(data[i][COL_INDEX.LOCKED_AT - 1]) : null;
+    if (data[i][col.OrderID - 1] === body.orderId) {
+      const currentLock = data[i][col.LockedBy - 1];
+      const lockTime = data[i][col.LockedAt - 1] ? new Date(data[i][col.LockedAt - 1]) : null;
       
       if (currentLock && currentLock !== adminId && lockTime) {
         const lockAge = (Date.now() - lockTime.getTime()) / 1000;
         if (lockAge < 30) {
-          return createJsonResponse({ 
-            status: 'locked', 
-            lockedBy: currentLock,
-            message: 'Order is being edited by another admin' 
-          });
+          return respond(false, 'Order is being edited by another admin', { lockedBy: currentLock });
         }
       }
-
-      sheet.getRange(i + 1, COL_INDEX.LOCKED_BY).setValue(adminId);
-      sheet.getRange(i + 1, COL_INDEX.LOCKED_AT).setValue(now);
-      return createJsonResponse({ status: 'success', lockedBy: adminId });
+      
+      sheet.getRange(i + 1, col.LockedBy).setValue(adminId);
+      sheet.getRange(i + 1, col.LockedAt).setValue(now);
+      return respond(true, 'Lock acquired', { lockedBy: adminId });
     }
   }
-
-  return createJsonResponse({ status: 'error', message: 'Order not found' });
+  return respond(false, 'Order not found');
 }
 
 function handleReleaseLock(ss, body) {
   const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const col = getColumnMap(sheet);
   const data = sheet.getDataRange().getValues();
   const adminId = body.adminId || 'admin';
-
+  
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === body.orderId) {
-      if (data[i][COL_INDEX.LOCKED_BY - 1] === adminId) {
-        sheet.getRange(i + 1, COL_INDEX.LOCKED_BY).setValue('');
-        sheet.getRange(i + 1, COL_INDEX.LOCKED_AT).setValue('');
-        return createJsonResponse({ status: 'success' });
+    if (data[i][col.OrderID - 1] === body.orderId) {
+      if (data[i][col.LockedBy - 1] === adminId) {
+        sheet.getRange(i + 1, col.LockedBy).setValue('');
+        sheet.getRange(i + 1, col.LockedAt).setValue('');
+        return respond(true, 'Lock released');
       }
-      return createJsonResponse({ 
-        status: 'error', 
-        message: 'Cannot release lock owned by another admin' 
-      });
+      return respond(false, 'Cannot release lock owned by another admin');
     }
   }
-
-  return createJsonResponse({ status: 'error', message: 'Order not found' });
+  return respond(false, 'Order not found');
 }
 
+// ===== ROUTING =====
+function routeRequest(ss, body) {
+  const action = body.action;
+  
+  switch (action) {
+    case 'updateStatus':
+      return handleUpdateStatus(ss, body);
+    case 'deleteOrder':
+      return handleDeleteOrder(ss, body);
+    case 'updateMenu':
+      return handleUpdateMenu(ss, body);
+    case 'initMenu':
+      return handleInitMenu(ss, body);
+    case 'toggleAvailability':
+      return handleToggleAvailability(ss, body);
+    case 'setSystem':
+      return handleSetSystem(ss, body);
+    case 'getAllowedStatuses':
+      return handleGetAllowedStatuses(ss, body);
+    case 'acquireLock':
+      return handleAcquireLock(ss, body);
+    case 'releaseLock':
+      return handleReleaseLock(ss, body);
+    default:
+      return handleCreateOrder(ss, body);
+  }
+}
+
+// ===== ENTRY POINTS =====
+function doGet(e) {
+  try {
+    ensureSheetsExist();
+    const params = e.parameter || {};
+    
+    if (params.orderId && params.phone) {
+      return handleTrackOrder(params);
+    }
+    
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const cache = getCache();
+    
+    const isOpenSetting = getSystemSetting('isOpen');
+    const restaurantName = getSystemSetting('restaurantName') || 'Jirgah';
+    const isOpen = isOpenSetting !== 'true';
+    
+    const ordersSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+    const menuSheet = ss.getSheetByName(SHEET_NAMES.MENU);
+    
+    const ordersData = ordersSheet.getDataRange().getValues();
+    const menuData = menuSheet.getDataRange().getValues();
+    
+    const orders = mapRows(ordersData, 'order');
+    const menu = mapRows(menuData, 'menu');
+    
+    let menuVersion = cache.get('menu_version') || '0';
+    const menuItem = menuData.length > 1 ? menuData[1] : null;
+    if (menuItem) {
+      const col = getColumnMap(menuSheet);
+      if (menuItem[col.Version - 1]) {
+        menuVersion = String(menuItem[col.Version - 1]);
+      }
+    }
+    
+    return respond(true, 'Data fetched', {
+      orders,
+      menu,
+      menuVersion,
+      lastUpdated: new Date().toISOString(),
+      system: { isOpen, restaurantName }
+    });
+    
+  } catch (err) {
+    logError('GET_ERROR', err.message);
+    return respond(false, 'Server error');
+  }
+}
+
+function doPost(e) {
+  try {
+    ensureSheetsExist();
+    
+    const rawData = e.postData ? e.postData.contents : '{}';
+    const body = safeParse(rawData);
+    
+    if (!body.apiKey || body.apiKey !== API_KEY) {
+      return respond(false, 'Unauthorized');
+    }
+    
+    if (!body.action && !body.OrderID) {
+      return respond(false, 'Invalid request');
+    }
+    
+    const ip = body.ip || 'unknown';
+    const rateCheck = checkRateLimit(ip);
+    if (!rateCheck.allowed) {
+      logError('RATE_LIMIT', ip + ' exceeded');
+      return respond(false, 'Too many requests. Please wait.');
+    }
+    
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    return routeRequest(ss, body);
+    
+  } catch (err) {
+    logError('POST_ERROR', err.message);
+    return respond(false, 'Server error');
+  }
+}
+
+// ===== TRIGGER FUNCTIONS =====
 function processOrderQueue() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const queue = ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE);
     const main = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-
+    const mainCol = getColumnMap(main);
+    
     const data = queue.getDataRange().getValues();
     if (data.length <= 1) return;
-
-    const rowsToProcess = data.slice(1);
-    const processed = [];
-
-    rowsToProcess.forEach(row => {
-      if (row[0]) {
+    
+    const rows = data.slice(1);
+    let processed = 0;
+    
+    rows.forEach(row => {
+      if (row[mainCol.OrderID - 1]) {
         main.appendRow(row);
-        processed.push(row[0]);
+        processed++;
       }
     });
-
-    if (processed.length > 0) {
-      queue.deleteRows(2, processed.length);
-      logError('Queue processed', { count: processed.length }, 'INFO');
+    
+    if (processed > 0) {
+      queue.deleteRows(2, processed);
+      logError('QUEUE_PROCESSED', processed + ' orders');
     }
-
+    
     getCache().remove('orders_all');
-
   } catch (err) {
-    logError('processOrderQueue failed', { error: err.toString() }, 'ERROR');
+    logError('QUEUE_ERROR', err.message);
   }
 }
 
@@ -810,24 +719,21 @@ function archiveOldOrders() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const main = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
     const archive = ss.getSheetByName(SHEET_NAMES.ORDERS_ARCHIVE);
-
-    const data = main.getDataRange().getValues();
-    if (data.length <= ARCHIVE_THRESHOLD) return;
-
-    const rowsToMove = data.slice(1, ARCHIVE_BATCH_SIZE + 1);
     
-    rowsToMove.forEach(row => {
-      if (row[0]) {
-        archive.appendRow(row);
-      }
+    const data = main.getDataRange().getValues();
+    if (data.length <= CONFIG.ARCHIVE_THRESHOLD) return;
+    
+    const rows = data.slice(1, CONFIG.ARCHIVE_BATCH_SIZE + 1);
+    
+    rows.forEach(row => {
+      if (row[0]) archive.appendRow(row);
     });
-
-    main.deleteRows(2, rowsToMove.length);
-    logError('Orders archived', { count: rowsToMove.length }, 'INFO');
+    
+    main.deleteRows(2, rows.length);
+    logError('ARCHIVED', rows.length + ' orders');
     getCache().remove('orders_all');
-
   } catch (err) {
-    logError('archiveOldOrders failed', { error: err.toString() }, 'ERROR');
+    logError('ARCHIVE_ERROR', err.message);
   }
 }
 
@@ -835,25 +741,23 @@ function cleanupOldLocks() {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+    const col = getColumnMap(sheet);
     const data = sheet.getDataRange().getValues();
     const now = Date.now();
     const lockTimeout = 30 * 1000;
     let cleaned = 0;
-
+    
     for (let i = data.length - 1; i >= 1; i--) {
-      const lockTime = data[i][COL_INDEX.LOCKED_AT - 1] ? new Date(data[i][COL_INDEX.LOCKED_AT - 1]).getTime() : 0;
+      const lockTime = data[i][col.LockedAt - 1] ? new Date(data[i][col.LockedAt - 1]).getTime() : 0;
       if (lockTime && (now - lockTime) > lockTimeout) {
-        sheet.getRange(i + 1, COL_INDEX.LOCKED_BY).setValue('');
-        sheet.getRange(i + 1, COL_INDEX.LOCKED_AT).setValue('');
+        sheet.getRange(i + 1, col.LockedBy).setValue('');
+        sheet.getRange(i + 1, col.LockedAt).setValue('');
         cleaned++;
       }
     }
-
-    if (cleaned > 0) {
-      logError('Stale locks cleaned', { count: cleaned }, 'INFO');
-    }
-
+    
+    if (cleaned > 0) logError('CLEANED_LOCKS', cleaned);
   } catch (err) {
-    logError('cleanupOldLocks failed', { error: err.toString() }, 'ERROR');
+    logError('CLEANUP_ERROR', err.message);
   }
 }
