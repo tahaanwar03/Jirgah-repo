@@ -78,8 +78,13 @@ function getColumnMap(sheet) {
   }
 }
 
-// ===== AUTO-BOOTSTRAP SHEETS =====
+// ===== AUTO-BOOTSTRAP SHEETS (CACHED) =====
 function ensureSheetsExist() {
+  const cache = getCache();
+  const initialized = cache.get('INIT_DONE');
+  
+  if (initialized) return;
+  
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   
   Object.values(SHEET_NAMES).forEach(name => {
@@ -129,6 +134,9 @@ function ensureSheetsExist() {
       menuSheet.getRange(2, col.Price, menuSheet.getLastRow(), 1).setNumberFormat('#,##0.00');
     }
   }
+  
+  // Cache initialization for 6 hours
+  cache.put('INIT_DONE', 'true', 21600);
 }
 
 // ===== SYSTEM SETTINGS AUTO-INIT =====
@@ -183,6 +191,11 @@ function logError(type, message) {
       sheet.appendRow(COLUMNS.LOGS);
     }
     sheet.appendRow([new Date().toISOString(), type, String(message).slice(0, 500)]);
+    
+    // Cap logs at 5000 rows - delete oldest when exceeded
+    if (sheet.getLastRow() > 5000) {
+      sheet.deleteRows(2, 1000);
+    }
   } catch {}
 }
 
@@ -304,6 +317,17 @@ function handleTrackOrder(params) {
 function handleCreateOrder(ss, body) {
   if (!body.OrderID || !body.CustomerName || !body.Phone) {
     return respond(false, 'Missing required fields: OrderID, CustomerName, Phone');
+  }
+  
+  // Validate Items format
+  const items = safeParse(body.Items);
+  if (!Array.isArray(items) || items.length === 0) {
+    return respond(false, 'Invalid items: must be a non-empty array');
+  }
+  
+  // Validate Total
+  if (isNaN(body.Total) || body.Total <= 0) {
+    return respond(false, 'Invalid total: must be a positive number');
   }
   
   if (checkIdempotency(body.OrderID)) {
