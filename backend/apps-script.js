@@ -48,6 +48,21 @@ const CONFIG = {
   RATE_LIMIT_MAX: 5
 };
 
+const CACHE_KEYS = {
+  INIT: 'JIRGAH_INIT_DONE',
+  MENU_VERSION: 'JIRGAH_MENU_VERSION',
+  ORDERS: 'JIRGAH_ORDERS',
+  RATE: 'JIRGAH_RATE_',
+  IDEMP: 'JIRGAH_IDEMP_'
+};
+
+const INPUT_LIMITS = {
+  CustomerName: 100,
+  Address: 300,
+  Phone: 20,
+  Notes: 500
+};
+
 // ===== RESPONSE HELPER =====
 function respond(success, message, data = {}) {
   return ContentService.createTextOutput(JSON.stringify({
@@ -58,12 +73,19 @@ function respond(success, message, data = {}) {
 }
 
 // ===== SAFE JSON PARSING =====
-function safeParse(json) {
+function safeParse(json, fallback = null) {
   try {
-    return JSON.parse(json || '[]');
+    return JSON.parse(json);
   } catch {
-    return [];
+    return fallback;
   }
+}
+
+// ===== INPUT SANITIZATION =====
+function sanitizeInput(str, maxLen) {
+  if (!str) return '';
+  str = String(str).trim();
+  return str.slice(0, maxLen);
 }
 
 // ===== COLUMN MAPPER =====
@@ -76,6 +98,16 @@ function getColumnMap(sheet) {
   } catch {
     return {};
   }
+}
+
+function getRequiredColumnMap(sheet, requiredCols) {
+  const col = getColumnMap(sheet);
+  for (const required of requiredCols) {
+    if (!col[required]) {
+      throw new Error('Missing required column: ' + required);
+    }
+  }
+  return col;
 }
 
 // ===== AUTO-BOOTSTRAP SHEETS (CACHED) =====
@@ -193,8 +225,9 @@ function logError(type, message) {
     sheet.appendRow([new Date().toISOString(), type, String(message).slice(0, 500)]);
     
     // Cap logs at 5000 rows - delete oldest when exceeded
+    // Cap logs at 5000 rows - delete smaller batches
     if (sheet.getLastRow() > 5000) {
-      sheet.deleteRows(2, 1000);
+      sheet.deleteRows(2, 200);
     }
   } catch {}
 }
@@ -214,16 +247,16 @@ function normalizePhone(phone) {
 
 function checkRateLimit(ip) {
   const cache = getCache();
-  const key = 'rate_' + (ip || 'unknown');
+  const key = CACHE_KEYS.RATE + (ip || 'unknown');
   const count = Number(cache.get(key)) || 0;
-  if (count > CONFIG.RATE_LIMIT_MAX) return { allowed: false, count };
+  if (count >= CONFIG.RATE_LIMIT_MAX) return { allowed: false, count };
   cache.put(key, String(count + 1), CONFIG.RATE_LIMIT_WINDOW);
   return { allowed: true, count: count + 1 };
 }
 
 function checkIdempotency(orderId) {
   const cache = getCache();
-  const key = 'idemp_' + orderId;
+  const key = CACHE_KEYS.IDEMP + orderId;
   if (cache.get(key)) return true;
   cache.put(key, '1', 300);
   return false;
@@ -320,7 +353,7 @@ function handleCreateOrder(ss, body) {
   }
   
   // Validate Items format
-  const items = safeParse(body.Items);
+  const items = safeParse(body.Items, []);
   if (!Array.isArray(items) || items.length === 0) {
     return respond(false, 'Invalid items: must be a non-empty array');
   }
@@ -334,22 +367,31 @@ function handleCreateOrder(ss, body) {
     return respond(true, 'Duplicate order ignored', { orderId: body.OrderID });
   }
   
-  const isOpen = getSystemSetting('isOpen');
-  if (isOpen === 'false') {
+  const isOpenSetting = getSystemSetting('isOpen');
+  const isOpen = isOpenSetting === 'true';
+  if (!isOpen) {
     return respond(false, 'Restaurant is currently closed');
   }
   
   const queueSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE);
-  const col = getColumnMap(queueSheet);
+  const requiredCols = ['OrderID', 'Timestamp', 'CustomerName'];
+  const col = getRequiredColumnMap(queueSheet, requiredCols);
   const now = new Date().toISOString();
   const history = JSON.stringify([{ status: 'Pending', time: now }]);
+  
+  // Sanitize phone (remove any existing quotes first)
+  const rawPhone = String(body.Phone || '').replace(/^'+/, '');
+  const safePhone = rawPhone ? "'" + rawPhone : '';
+  const safeName = sanitizeInput(body.CustomerName, INPUT_LIMITS.CustomerName);
+  const safeAddress = sanitizeInput(body.Address, INPUT_LIMITS.Address);
+  const safeNotes = sanitizeInput(body.Notes, INPUT_LIMITS.Notes);
   
   const row = [
     body.OrderID || '',
     body.Timestamp || now,
-    body.CustomerName || '',
-    body.Phone ? "'" + body.Phone : '',
-    body.Address || '',
+    safeName,
+    safePhone,
+    safeAddress,
     body.Items || '[]',
     body.Total || 0,
     body.Notes || '',
@@ -401,7 +443,7 @@ function handleUpdateStatus(ss, body) {
         sheet.getRange(i + 1, col.StatusHistory).setValue(JSON.stringify(history));
       }
       
-      getCache().remove('orders_all');
+      getCache().remove(CACHE_KEYS.ORDERS);
       return respond(true, 'Status updated');
     }
   }
@@ -417,7 +459,7 @@ function handleDeleteOrder(ss, body) {
   for (let i = 1; i < data.length; i++) {
     if (data[i][col.OrderID - 1] === body.orderId) {
       sheet.deleteRow(i + 1);
-      getCache().remove('orders_all');
+      getCache().remove(CACHE_KEYS.ORDERS);
       return respond(true, 'Order deleted');
     }
   }
@@ -464,7 +506,7 @@ function handleUpdateMenu(ss, body) {
     sheet.appendRow(rowData);
   }
   
-  getCache().remove('orders_all');
+  getCache().remove(CACHE_KEYS.ORDERS);
   getCache().put('menu_version', String(version), 300);
   
   return respond(true, 'Menu updated', { version });
@@ -501,7 +543,7 @@ function handleInitMenu(ss, body) {
   }
   
   getCache().put('menu_version', String(version), 300);
-  getCache().remove('orders_all');
+  getCache().remove(CACHE_KEYS.ORDERS);
   
   return respond(true, 'Menu initialized', { version });
 }
@@ -516,7 +558,7 @@ function handleToggleAvailability(ss, body) {
       const currentValue = data[i][col.Available - 1];
       const newValue = currentValue !== true && currentValue !== 'true';
       sheet.getRange(i + 1, col.Available).setValue(newValue);
-      getCache().remove('orders_all');
+      getCache().remove(CACHE_KEYS.ORDERS);
       return respond(true, 'Availability toggled', { available: newValue });
     }
   }
@@ -526,7 +568,7 @@ function handleToggleAvailability(ss, body) {
 function handleSetSystem(ss, body) {
   if (body.key === 'isOpen') {
     setSystemSetting('isOpen', body.value ? 'true' : 'false');
-    getCache().remove('orders_all');
+    getCache().remove(CACHE_KEYS.ORDERS);
     return respond(true, 'System updated', { isOpen: body.value });
   }
   setSystemSetting(body.key, body.value);
@@ -680,7 +722,11 @@ function doPost(e) {
     ensureSheetsExist();
     
     const rawData = e.postData ? e.postData.contents : '{}';
-    const body = safeParse(rawData);
+    const body = safeParse(rawData, {});
+    
+    if (!body || typeof body !== 'object') {
+      return respond(false, 'Invalid request body');
+    }
     
     if (!body.apiKey || body.apiKey !== API_KEY) {
       return respond(false, 'Unauthorized');
@@ -688,6 +734,20 @@ function doPost(e) {
     
     if (!body.action && !body.OrderID) {
       return respond(false, 'Invalid request');
+    }
+    
+    // Sanitize input lengths
+    if (body.CustomerName && body.CustomerName.length > INPUT_LIMITS.CustomerName) {
+      return respond(false, 'Name too long');
+    }
+    if (body.Address && body.Address.length > INPUT_LIMITS.Address) {
+      return respond(false, 'Address too long');
+    }
+    if (body.Phone && body.Phone.length > INPUT_LIMITS.Phone) {
+      return respond(false, 'Phone too long');
+    }
+    if (body.Notes && body.Notes.length > INPUT_LIMITS.Notes) {
+      return respond(false, 'Notes too long');
     }
     
     const ip = body.ip || 'unknown';
@@ -712,7 +772,9 @@ function processOrderQueue() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const queue = ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE);
     const main = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-    const mainCol = getColumnMap(main);
+    
+    const queueCol = getRequiredColumnMap(queue, ['OrderID']);
+    const mainCol = getRequiredColumnMap(main, COLUMNS.ORDER);
     
     const data = queue.getDataRange().getValues();
     if (data.length <= 1) return;
@@ -721,8 +783,13 @@ function processOrderQueue() {
     let processed = 0;
     
     rows.forEach(row => {
-      if (row[mainCol.OrderID - 1]) {
-        main.appendRow(row);
+      if (row[queueCol.OrderID - 1]) {
+        // Map row from queue column order to main column order
+        const mappedRow = COLUMNS.ORDER.map(colName => {
+          const queueIdx = queueCol[colName];
+          return queueIdx ? row[queueIdx - 1] : '';
+        });
+        main.appendRow(mappedRow);
         processed++;
       }
     });
@@ -732,7 +799,7 @@ function processOrderQueue() {
       logError('QUEUE_PROCESSED', processed + ' orders');
     }
     
-    getCache().remove('orders_all');
+    getCache().remove(CACHE_KEYS.ORDERS);
   } catch (err) {
     logError('QUEUE_ERROR', err.message);
   }
@@ -755,7 +822,7 @@ function archiveOldOrders() {
     
     main.deleteRows(2, rows.length);
     logError('ARCHIVED', rows.length + ' orders');
-    getCache().remove('orders_all');
+    getCache().remove(CACHE_KEYS.ORDERS);
   } catch (err) {
     logError('ARCHIVE_ERROR', err.message);
   }
