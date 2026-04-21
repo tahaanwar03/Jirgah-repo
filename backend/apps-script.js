@@ -12,6 +12,7 @@ const SHEET_NAMES = {
   ORDERS_MAIN: 'Orders',
   ORDERS_QUEUE: 'Orders_Queue',
   ORDERS_ARCHIVE: 'Orders_Archive',
+  ORDERS_BACKUP: 'Orders_Backup',
   MENU: 'Menu',
   LOGS: 'Logs',
   SYSTEM: 'SystemSettings'
@@ -113,7 +114,7 @@ function getRequiredColumnMap(sheet, requiredCols) {
 // ===== AUTO-BOOTSTRAP SHEETS (CACHED) =====
 function ensureSheetsExist() {
   const cache = getCache();
-  const initialized = cache.get('INIT_DONE');
+  const initialized = cache.get(CACHE_KEYS.INIT);
   
   if (initialized) return;
   
@@ -127,7 +128,7 @@ function ensureSheetsExist() {
     }
     
     let expectedHeaders = [];
-    if (name === SHEET_NAMES.ORDERS_MAIN || name === SHEET_NAMES.ORDERS_QUEUE || name === SHEET_NAMES.ORDERS_ARCHIVE) {
+    if (name === SHEET_NAMES.ORDERS_MAIN || name === SHEET_NAMES.ORDERS_QUEUE || name === SHEET_NAMES.ORDERS_ARCHIVE || name === SHEET_NAMES.ORDERS_BACKUP) {
       expectedHeaders = COLUMNS.ORDER;
     } else if (name === SHEET_NAMES.MENU) {
       expectedHeaders = COLUMNS.MENU;
@@ -168,7 +169,7 @@ function ensureSheetsExist() {
   }
   
   // Cache initialization for 6 hours
-  cache.put('INIT_DONE', 'true', 21600);
+  cache.put(CACHE_KEYS.INIT, 'true', 21600);
 }
 
 // ===== SYSTEM SETTINGS AUTO-INIT =====
@@ -283,19 +284,19 @@ function mapRows(dataRows, type) {
 
 function mapOrderRow(row, col) {
   return {
-    OrderID: row[col.OrderID] || '',
-    Timestamp: row[col.Timestamp] || '',
-    CustomerName: row[col.CustomerName] || '',
-    Phone: String(row[col.Phone] || '').replace(/^'+/, ''),
-    Address: row[col.Address] || '',
-    Items: row[col.Items] || '[]',
-    Total: row[col.Total] || 0,
-    Notes: row[col.Notes] || '',
-    Status: row[col.Status] || 'Pending',
-    LockedBy: row[col.LockedBy] || '',
-    LockedAt: row[col.LockedAt] || '',
-    LastUpdated: row[col.LastUpdated] || '',
-    StatusHistory: row[col.StatusHistory] || '[]'
+    OrderID:       row[col.OrderID - 1]       || '',
+    Timestamp:     row[col.Timestamp - 1]     || '',
+    CustomerName:  row[col.CustomerName - 1]  || '',
+    Phone:         String(row[col.Phone - 1]  || '').replace(/^'+/, ''),
+    Address:       row[col.Address - 1]       || '',
+    Items:         row[col.Items - 1]         || '[]',
+    Total:         row[col.Total - 1]         || 0,
+    Notes:         row[col.Notes - 1]         || '',
+    Status:        row[col.Status - 1]        || 'Pending',
+    LockedBy:      row[col.LockedBy - 1]      || '',
+    LockedAt:      row[col.LockedAt - 1]      || '',
+    LastUpdated:   row[col.LastUpdated - 1]   || '',
+    StatusHistory: row[col.StatusHistory - 1] || '[]'
   };
 }
 
@@ -394,7 +395,7 @@ function handleCreateOrder(ss, body) {
     safeAddress,
     body.Items || '[]',
     body.Total || 0,
-    body.Notes || '',
+    safeNotes,
     'Pending',
     '',
     '',
@@ -402,15 +403,14 @@ function handleCreateOrder(ss, body) {
     history
   ];
   
-  if (col.OrderID) {
-    const nextRow = queueSheet.getLastRow() + 1;
-    row.forEach((val, i) => {
-      const colIdx = Object.values(col)[i];
-      if (colIdx) queueSheet.getRange(nextRow, colIdx).setValue(val);
-    });
-  } else {
-    queueSheet.appendRow(row);
-  }
+  const nextRow = queueSheet.getLastRow() + 1;
+  COLUMNS.ORDER.forEach((colName, i) => {
+    if (col[colName]) {
+      queueSheet.getRange(nextRow, col[colName]).setValue(row[i]);
+    } else {
+      // Column not in map yet — append in order
+    }
+  });
   
   return respond(true, 'Order created', { orderId: body.OrderID });
 }
@@ -498,9 +498,10 @@ function handleUpdateMenu(ss, body) {
   ];
   
   if (rowIndex !== -1) {
-    rowData.forEach((val, i) => {
-      const colIdx = Object.values(col)[i];
-      if (colIdx) sheet.getRange(rowIndex, colIdx).setValue(val);
+    COLUMNS.MENU.forEach((colName, i) => {
+      if (col[colName]) {
+        sheet.getRange(rowIndex, col[colName]).setValue(rowData[i]);
+      }
     });
   } else {
     sheet.appendRow(rowData);
@@ -663,8 +664,77 @@ function routeRequest(ss, body) {
       return handleAcquireLock(ss, body);
     case 'releaseLock':
       return handleReleaseLock(ss, body);
+    case 'backupOrders':
+      return backupOrders();
+    case 'restoreOrders':
+      return restoreFromBackup(body);
     default:
       return handleCreateOrder(ss, body);
+  }
+}
+
+function backupOrders() {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const main = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+    const backup = ss.getSheetByName(SHEET_NAMES.ORDERS_BACKUP);
+
+    const data = main.getDataRange().getValues();
+    if (data.length <= 1) return respond(true, 'Nothing to backup');
+
+    const timestamp = new Date().toISOString();
+
+    // Add backup tag column temporarily
+    const tagged = data.slice(1).map(row => [...row, timestamp]);
+
+    backup.getRange(
+      backup.getLastRow() + 1,
+      1,
+      tagged.length,
+      tagged[0].length
+    ).setValues(tagged);
+
+    logError('BACKUP_SUCCESS', `Backed up ${tagged.length} orders`);
+    return respond(true, 'Backup created', { count: tagged.length });
+  } catch (err) {
+    logError('BACKUP_ERROR', err.message);
+    return respond(false, 'Backup failed: ' + err.message);
+  }
+}
+
+function restoreFromBackup(body) {
+  if (body.confirm !== 'RESTORE_NOW') {
+    return respond(false, 'Confirmation required');
+  }
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const main = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+    const backup = ss.getSheetByName(SHEET_NAMES.ORDERS_BACKUP);
+
+    const data = backup.getDataRange().getValues();
+    if (data.length <= 1) {
+      return respond(false, 'No backup data found');
+    }
+
+    // Clear main
+    if (main.getLastRow() > 1) {
+      main.deleteRows(2, main.getLastRow() - 1);
+    }
+
+    // Restore
+    const rows = data.slice(1).map(r => r.slice(0, COLUMNS.ORDER.length));
+
+    main.getRange(2, 1, rows.length, rows[0].length).setValues(rows);
+
+    logError('RESTORE_SUCCESS', `Restored ${rows.length} orders`);
+
+    // Invalidate local cache because everything changed
+    getCache().remove(CACHE_KEYS.ORDERS);
+
+    return respond(true, 'Data restored');
+  } catch (err) {
+    logError('RESTORE_ERROR', err.message);
+    return respond(false, 'Restore failed');
   }
 }
 
@@ -683,7 +753,7 @@ function doGet(e) {
     
     const isOpenSetting = getSystemSetting('isOpen');
     const restaurantName = getSystemSetting('restaurantName') || 'Jirgah';
-    const isOpen = isOpenSetting !== 'true';
+    const isOpen = isOpenSetting === 'true';
     
     const ordersSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
     const menuSheet = ss.getSheetByName(SHEET_NAMES.MENU);
@@ -703,8 +773,23 @@ function doGet(e) {
       }
     }
     
+    const params = e.parameter || {};
+    const page = parseInt(params.page || '1', 10);
+    const limit = Math.min(parseInt(params.limit || '50', 10), 100);
+    
+    // Reverse sort so newest is first
+    orders.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+    
+    const start = (page - 1) * limit;
+    const end = start + limit;
+    const paginatedOrders = orders.slice(start, end);
+
     return respond(true, 'Data fetched', {
-      orders,
+      orders: paginatedOrders,
+      totalOrders: orders.length,
+      page,
+      limit,
+      totalPages: Math.ceil(orders.length / limit),
       menu,
       menuVersion,
       lastUpdated: new Date().toISOString(),

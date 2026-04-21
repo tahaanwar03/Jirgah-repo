@@ -32,6 +32,26 @@ const STATUS_STEPS = [
   { key: 'Delivered', label: 'Delivered', icon: 'check_circle' },
 ];
 
+// ===================== API WRAPPER =====================
+async function apiRequest(url, options = {}) {
+  try {
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid server response');
+    }
+
+    if (data.status !== 'success') {
+      return { ok: false, message: data.message || 'Request failed', data: null };
+    }
+
+    return { ok: true, message: data.message || '', data: data.data || data };
+  } catch (err) {
+    return { ok: false, message: 'Network error. Please try again.', data: null };
+  }
+}
+
 // ===================== STATE =====================
 const AppState = {
   cart: {
@@ -58,13 +78,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   processFailedOrders();
   renderCategoryTabs();
   
+  // Instant render from local menu
   renderMenuGrid(AppState.ui.activeCategory);
   renderCartDrawer();
   updateCartBadge();
   bindEvents();
   
+  // Background tasks — do not block UI
   fetchSystemState();
-  
+  fetchMenu(); // Syncs live prices + availability in background
+
   setInterval(() => {
     processFailedOrders();
   }, 60000);
@@ -73,11 +96,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 async function fetchSystemState() {
   if (!CONFIG.GAS_URL) return;
   try {
-    const res = await fetch(`${CONFIG.GAS_URL}?t=${Date.now()}`);
-    const data = await res.json();
-    if (data.status === 'success' && data.system) {
-      AppState.isOpen = data.system.isOpen !== false;
-      AppState.restaurantName = data.system.restaurantName || 'Jirgah';
+    const res = await apiRequest(`${CONFIG.GAS_URL}?t=${Date.now()}`);
+    if (res.ok && res.data.system) {
+      AppState.isOpen = res.data.system.isOpen !== false;
+      AppState.restaurantName = res.data.system.restaurantName || 'Jirgah';
       updateClosedBanner();
     }
   } catch (e) {
@@ -103,16 +125,15 @@ async function fetchMenu() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   try {
-    const res = await fetch(`${CONFIG.GAS_URL}?t=${Date.now()}`, { signal: controller.signal });
+    const res = await apiRequest(`${CONFIG.GAS_URL}?t=${Date.now()}`, { signal: controller.signal });
     clearTimeout(timeout);
-    const data = await res.json();
     
-    if (data.status === 'success' && data.menu && data.menu.length > 0) {
-      const serverVersion = data.menuVersion;
+    if (res.ok && res.data.menu && res.data.menu.length > 0) {
+      const serverVersion = res.data.menuVersion;
       const localVersion = localStorage.getItem('jirgah_menu_version');
       
       if (serverVersion && serverVersion !== localVersion) {
-        window.LIVE_MENU = data.menu.map(item => ({
+        window.LIVE_MENU = res.data.menu.map(item => ({
           id: item.ID,
           category: item.Category,
           name: item.Name,
@@ -141,9 +162,9 @@ async function fetchMenu() {
       console.warn('Live menu empty or unavailable — using local menu.');
     }
     
-    if (data.system) {
-      AppState.isOpen = data.system.isOpen !== false;
-      AppState.restaurantName = data.system.restaurantName || 'Jirgah';
+    if (res.ok && res.data.system) {
+      AppState.isOpen = res.data.system.isOpen !== false;
+      AppState.restaurantName = res.data.system.restaurantName || 'Jirgah';
       updateClosedBanner();
     }
   } catch (err) {
@@ -667,28 +688,26 @@ async function handleFormSubmit(e) {
   }
 
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(order)
     });
 
-    const data = await res.json();
-    if (data.status === 'success') {
+    if (res.ok) {
       onOrderSuccess(order.OrderID);
     } else {
-      throw new Error(data.message || 'Server returned an error');
+      if (res.message === 'Network error. Please try again.') {
+        queueFailedOrder(order);
+        onOrderSuccess(order.OrderID);
+        showToast('Order saved! Will finish syncing when online.', 'info');
+      } else {
+        showToast('Error: ' + res.message, 'error');
+      }
     }
   } catch (err) {
-    console.error('Order submission failed:', err);
-    
-    if (err instanceof TypeError || err.message === 'Failed to fetch') {
-      queueFailedOrder(order);
-      onOrderSuccess(order.OrderID);
-      showToast('Order saved! Will finish syncing when online.', 'info');
-    } else {
-      showToast('Error: ' + err.message, 'error');
-    }
+    console.error('Order submission crashed:', err);
+    showToast('An unexpected error occurred.', 'error');
   } finally {
     setLoadingState(false);
   }
@@ -727,14 +746,14 @@ async function processFailedOrders() {
     }
     
     try {
-      const res = await fetch(CONFIG.GAS_URL, {
+      const res = await apiRequest(CONFIG.GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(order)
       });
-      const data = await res.json();
-      if (data.status !== 'success' && data.message !== 'Duplicate order ignored') {
-        throw new Error(data.message || 'Retry failed');
+      
+      if (!res.ok && res.message !== 'Duplicate order ignored') {
+        throw new Error(res.message || 'Retry failed');
       }
       console.log(`Queued order ${order.OrderID} successfully synced`);
     } catch (e) {
@@ -824,11 +843,10 @@ async function handleTrackOrderSubmit() {
   const phone = phoneInput;
 
   try {
-    const res = await fetch(`${CONFIG.GAS_URL}?orderId=${encodeURIComponent(orderId)}&phone=${encodeURIComponent(phone)}`);
-    const data = await res.json();
+    const res = await apiRequest(`${CONFIG.GAS_URL}?orderId=${encodeURIComponent(orderId)}&phone=${encodeURIComponent(phone)}`);
 
-    if (data.status === 'success' && data.order) {
-      showTrackingResult(data.order);
+    if (res.ok && res.data.order) {
+      showTrackingResult(res.data.order);
     } else {
       document.getElementById('tracking-result-content').innerHTML = `
         <div class="text-center py-8">

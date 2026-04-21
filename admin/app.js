@@ -28,6 +28,26 @@ const ORDER_STATUS = {
   }
 };
 
+// ===================== API WRAPPER =====================
+async function apiRequest(url, options = {}) {
+  try {
+    const response = await fetch(url, options);
+    const data = await response.json();
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Invalid server response');
+    }
+
+    if (data.status !== 'success') {
+      return { ok: false, message: data.message || 'Request failed', data: null };
+    }
+
+    return { ok: true, message: data.message || '', data: data.data || data };
+  } catch (err) {
+    return { ok: false, message: 'Network error. Please try again.', data: null };
+  }
+}
+
 // ===================== STATE =====================
 const AdminState = {
   orders: [],
@@ -45,18 +65,99 @@ const AdminState = {
   freshOrderIds: new Set(),
   expandedOrderId: null,
   charts: { bar: null, doughnut: null },
-  currentPage: 1,
-  itemsPerPage: 10,
+  page: 1,
+  limit: 50,
+  totalPages: 1,
+  totalOrders: 0,
   adminId: 'admin_' + Math.random().toString(36).substr(2, 6),
   lockedOrders: new Map(),
   isOpen: true,
   allowedStatuses: {},
 };
 
+// ===================== AUTH STATE =====================
+const AdminAuth = {
+  attempts: 0,
+  lockedUntil: 0
+};
+
+function saveAuthState() {
+  try {
+    localStorage.setItem('jirgah_admin_auth_state', JSON.stringify(AdminAuth));
+  } catch (e) {}
+}
+
+function loadAuthState() {
+  try {
+    const data = localStorage.getItem('jirgah_admin_auth_state');
+    if (data) Object.assign(AdminAuth, JSON.parse(data));
+  } catch (e) {}
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function handleLogin(inputPassword) {
+  const now = Date.now();
+
+  if (AdminAuth.lockedUntil > now) {
+    const remaining = Math.ceil((AdminAuth.lockedUntil - now) / 1000);
+    showLoginError(`Too many attempts. Try again in ${remaining}s`);
+    return;
+  }
+
+  if (inputPassword === CONFIG.ADMIN_PASSWORD) {
+    sessionStorage.setItem('jirgah_admin_auth', 'true');
+    AdminAuth.attempts = 0;
+    AdminAuth.lockedUntil = 0;
+    saveAuthState();
+    unlockDashboard();
+    return;
+  }
+
+  AdminAuth.attempts++;
+  if (AdminAuth.attempts >= 3) {
+    AdminAuth.lockedUntil = now + 30000;
+    saveAuthState();
+    showLoginError('Too many attempts. Locked for 30 seconds.');
+    startLockoutCountdown();
+  } else {
+    saveAuthState();
+    showLoginError(`Incorrect password (${AdminAuth.attempts}/3 attempts)`);
+  }
+}
+
+function startLockoutCountdown() {
+  const btn = document.getElementById('login-submit-btn');
+  const interval = setInterval(() => {
+    const remaining = Math.ceil((AdminAuth.lockedUntil - Date.now()) / 1000);
+    if (remaining <= 0) {
+      clearInterval(interval);
+      if (btn) { btn.disabled = false; btn.textContent = 'Unlock Dashboard'; }
+      const el = document.getElementById('login-error');
+      if (el) el.classList.add('hidden');
+      return;
+    }
+    if (btn) { btn.disabled = true; btn.textContent = `Locked (${remaining}s)`; }
+    showLoginError(`Too many attempts. Try again in ${remaining}s`);
+  }, 1000);
+}
+
 // ===================== INIT & AUTH =====================
+
 document.addEventListener('DOMContentLoaded', async () => {
+  loadAuthState();
   bindEvents();
   
+  // Resume countdown if still locked from a previous session
+  if (AdminAuth.lockedUntil > Date.now()) {
+    startLockoutCountdown();
+  }
+
   if (sessionStorage.getItem('jirgah_admin_auth') === 'true') {
     unlockDashboard();
   } else {
@@ -78,12 +179,7 @@ function bindEvents() {
   document.getElementById('login-form').addEventListener('submit', e => {
     e.preventDefault();
     const pw = document.getElementById('admin-password').value;
-    if (pw === CONFIG.ADMIN_PASSWORD) {
-      sessionStorage.setItem('jirgah_admin_auth', 'true');
-      unlockDashboard();
-    } else {
-      document.getElementById('login-error').classList.remove('hidden');
-    }
+    handleLogin(pw);
   });
 
   document.getElementById('sidebar-nav').addEventListener('click', e => {
@@ -211,13 +307,14 @@ async function fetchOrders() {
     return;
   }
   try {
-    let url = `${CONFIG.GAS_URL}?t=${Date.now()}`;
+    let url = `${CONFIG.GAS_URL}?page=${AdminState.page}&limit=${AdminState.limit}&t=${Date.now()}`;
     if (AdminState.lastUpdated && AdminState.orders.length > 0) {
       url += `&lastUpdated=${encodeURIComponent(AdminState.lastUpdated)}`;
     }
     
-    const res = await fetch(url);
-    const raw = await res.json();
+    const res = await apiRequest(url);
+    if (!res.ok) throw new Error(res.message);
+    const raw = res.data;
     
     function normalizeOrder(o) {
       return {
@@ -237,6 +334,8 @@ async function fetchOrders() {
     }
 
     AdminState.orders = (raw.orders || []).map(normalizeOrder);
+    AdminState.totalPages = raw.totalPages || 1;
+    AdminState.totalOrders = raw.totalOrders || AdminState.orders.length;
     AdminState.menu   = raw.menu    || [];
     AdminState.lastUpdated = raw.lastUpdated || AdminState.lastUpdated;
     
@@ -263,7 +362,7 @@ async function fetchOrders() {
     AdminState.orders.forEach(o => AdminState.knownOrderIds.add(o.OrderID));
     AdminState.lastFetchTime = new Date();
     
-    await fetchAllowedStatuses();
+    computeAllowedStatuses();
 
   } catch (err) {
     console.error('fetchOrders failed:', err);
@@ -273,25 +372,11 @@ async function fetchOrders() {
   }
 }
 
-async function fetchAllowedStatuses() {
-  if (!CONFIG.GAS_URL) return;
-  for (const order of AdminState.orders.slice(0, 50)) {
-    try {
-      const res = await fetch(CONFIG.GAS_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({
-          action: 'getAllowedStatuses',
-          apiKey: CONFIG.API_KEY,
-          orderId: order.OrderID
-        })
-      });
-      const data = await res.json();
-      if (data.status === 'success') {
-        AdminState.allowedStatuses[order.OrderID] = data.allowedNext;
-      }
-    } catch (e) {}
-  }
+// Compute allowed statuses locally using STATUS_FLOW — zero API calls
+function computeAllowedStatuses() {
+  AdminState.orders.forEach(o => {
+    AdminState.allowedStatuses[o.OrderID] = ORDER_STATUS.FLOW[o.Status] || [];
+  });
 }
 
 async function fetchAndRender() {
@@ -337,7 +422,7 @@ async function toggleRestaurantOpen() {
   }
 
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
@@ -347,11 +432,12 @@ async function toggleRestaurantOpen() {
         value: newState
       })
     });
-    const data = await res.json();
-    if (data.status === 'success') {
-      AdminState.isOpen = data.isOpen;
+    if (res.ok) {
+      AdminState.isOpen = res.data.isOpen ?? newState;
       updateOpenCloseUI();
       showToast(newState ? 'Restaurant is now OPEN' : 'Restaurant is now CLOSED', newState ? 'success' : 'warning');
+    } else {
+      throw new Error(res.message);
     }
   } catch (err) {
     showToast('Failed to update status', 'error');
@@ -378,7 +464,10 @@ function updateOpenCloseUI() {
 // ===================== AUTO-REFRESH =====================
 function startAutoRefresh() {
   if (AdminState.refreshInterval) return;
-  AdminState.refreshInterval = setInterval(fetchAndRender, CONFIG.REFRESH_INTERVAL_MS);
+  AdminState.refreshInterval = setInterval(() => {
+    AdminState.page = 1;
+    fetchAndRender();
+  }, CONFIG.REFRESH_INTERVAL_MS);
 }
 
 function stopAutoRefresh() {
@@ -552,9 +641,7 @@ function renderRecentOrdersTable() {
 // ===================== ORDERS TABLE =====================
 function renderOrdersTable() {
   const tbody = document.getElementById('orders-tbody');
-  const { filtered, currentPage, itemsPerPage } = AdminState;
-  const start = (currentPage - 1) * itemsPerPage;
-  const paginated = filtered.slice(start, start + itemsPerPage);
+  const paginated = AdminState.filtered;
 
   if (paginated.length === 0) {
     tbody.innerHTML = `<tr><td colspan="8" class="p-12 text-center text-on-surface-variant italic font-body">No orders match your filters.</td></tr>`;
@@ -698,11 +785,11 @@ function buildExpandedRow(o, items) {
           <div class="bg-primary/5 p-4 rounded-xl border border-primary/10">
             <div class="flex justify-between items-center mb-2">
               <span class="text-sm text-on-surface-variant">Subtotal</span>
-              <span class="text-sm text-on-surface">Rs. ${(Number(o.Total) - 100).toLocaleString()}</span>
+              <span class="text-sm text-on-surface">Rs. ${(Number(o.Total) - (CONFIG.DELIVERY_FEE || 100)).toLocaleString()}</span>
             </div>
             <div class="flex justify-between items-center mb-3">
               <span class="text-sm text-on-surface-variant">Delivery Fee</span>
-              <span class="text-sm text-on-surface">Rs. 100</span>
+              <span class="text-sm text-on-surface">Rs. ${(CONFIG.DELIVERY_FEE || 100).toLocaleString()}</span>
             </div>
             <div class="border-t border-primary/20 pt-3 flex justify-between">
               <span class="font-bold text-on-surface">Total</span>
@@ -736,46 +823,42 @@ function toggleRowExpand(orderId) {
 function renderOrdersCount() {
   const el = document.getElementById('orders-count-label');
   if (el) {
-    const { filtered, currentPage, itemsPerPage } = AdminState;
-    const start = Math.min((currentPage - 1) * itemsPerPage + 1, filtered.length);
-    const end = Math.min(currentPage * itemsPerPage, filtered.length);
-    el.textContent = filtered.length === 0
+    const total = AdminState.totalOrders;
+    const start = total === 0 ? 0 : (AdminState.page - 1) * AdminState.limit + 1;
+    const end = Math.min(AdminState.page * AdminState.limit, total);
+    el.textContent = total === 0
       ? 'No orders found'
-      : `Showing ${start}–${end} of ${filtered.length} orders`;
+      : `Showing ${start}–${end} of ${total} orders`;
   }
 }
 
 function renderPagination() {
   const container = document.getElementById('pagination-controls');
-  const total = AdminState.filtered.length;
-  const pages = Math.ceil(total / AdminState.itemsPerPage);
-  const curr = AdminState.currentPage;
+  const pages = AdminState.totalPages;
+  const curr = AdminState.page;
   if (pages <= 1) { container.innerHTML = ''; return; }
 
   let html = `<button onclick="changePage(${curr-1})" ${curr===1?'disabled':''} class="p-2 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary transition-colors disabled:opacity-40">
     <span class="material-symbols-outlined text-lg">chevron_left</span>
-  </button>`;
-  for (let p = 1; p <= pages; p++) {
-    html += `<button onclick="changePage(${p})" class="w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-colors ${p===curr ? 'bg-primary text-on-primary' : 'hover:bg-surface-container-low text-on-surface-variant'}">${p}</button>`;
-  }
-  html += `<button onclick="changePage(${curr+1})" ${curr===pages?'disabled':''} class="p-2 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary transition-colors disabled:opacity-40">
+  </button>
+  <span class="text-xs text-on-surface-variant font-medium px-4">Page ${curr} / ${pages}</span>
+  <button onclick="changePage(${curr+1})" ${curr===pages?'disabled':''} class="p-2 rounded-lg bg-surface-container-low text-on-surface-variant hover:text-primary transition-colors disabled:opacity-40">
     <span class="material-symbols-outlined text-lg">chevron_right</span>
   </button>`;
   container.innerHTML = html;
 }
 
 function changePage(p) {
-  const pages = Math.ceil(AdminState.filtered.length / AdminState.itemsPerPage);
-  if (p < 1 || p > pages) return;
-  AdminState.currentPage = p;
-  renderOrdersTable();
+  if (p < 1 || p > AdminState.totalPages) return;
+  AdminState.page = p;
+  fetchAndRender();
 }
 
 // ===================== STATUS UPDATE =====================
 async function acquireOrderLock(orderId) {
   if (!CONFIG.GAS_URL) return true;
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ 
@@ -785,11 +868,7 @@ async function acquireOrderLock(orderId) {
         adminId: AdminState.adminId 
       })
     });
-    const data = await res.json();
-    if (data.status === 'locked') {
-      return false;
-    }
-    return data.status === 'success';
+    return res.ok;
   } catch (e) {
     console.warn('Lock acquire failed:', e);
     return true;
@@ -799,7 +878,7 @@ async function acquireOrderLock(orderId) {
 async function releaseOrderLock(orderId) {
   if (!CONFIG.GAS_URL) return;
   try {
-    await fetch(CONFIG.GAS_URL, {
+    await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ 
@@ -844,13 +923,12 @@ async function handleStatusUpdate(orderId, newStatus, selectEl) {
 
   const payload = { action: 'updateStatus', apiKey: CONFIG.API_KEY, orderId, status: newStatus };
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
-    if (data.status !== 'success') throw new Error(data.message || 'API rejected update');
+    if (!res.ok) throw new Error(res.message);
     
     showToast(`Order ${orderId} marked as ${newStatus}`, 'success');
     AdminState.allowedStatuses[orderId] = ORDER_STATUS.FLOW[newStatus] || [];
@@ -904,13 +982,12 @@ async function handleDeleteOrder(orderId) {
   
   if (!CONFIG.GAS_URL) return;
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'deleteOrder', apiKey: CONFIG.API_KEY, orderId })
     });
-    const data = await res.json();
-    if (data.status !== 'success') throw new Error(data.message || 'API rejected delete');
+    if (!res.ok) throw new Error(res.message);
   } catch (err) {
     console.error('Delete sync failed:', err);
     showToast('Deleted locally — Sheet sync failed. ' + err.message, 'warning');
@@ -1284,7 +1361,7 @@ async function toggleItemAvailability(id) {
   }
 
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({
@@ -1293,14 +1370,15 @@ async function toggleItemAvailability(id) {
         ID: id
       })
     });
-    const data = await res.json();
-    if (data.status === 'success') {
+    if (res.ok) {
       const item = AdminState.menu.find(i => i.ID === id);
       if (item) {
-        item.Available = data.available;
+        item.Available = res.data.available;
       }
       renderMenuEditor();
-      showToast(data.available ? 'Item now available' : 'Item now unavailable', data.available ? 'success' : 'warning');
+      showToast(res.data.available ? 'Item now available' : 'Item now unavailable', res.data.available ? 'success' : 'warning');
+    } else {
+      throw new Error(res.message);
     }
   } catch (err) {
     showToast('Failed to toggle availability', 'error');
@@ -1341,16 +1419,15 @@ async function saveMenuItem(id) {
     }
 
     if (CONFIG.GAS_URL) {
-      const res = await fetch(CONFIG.GAS_URL, {
+      const res = await apiRequest(CONFIG.GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (data.status !== 'success') throw new Error(data.message || 'API rejected menu update');
+      if (!res.ok) throw new Error(res.message);
       
-      if (data.version) {
-        localStorage.setItem('jirgah_menu_version', String(data.version));
+      if (res.data.version) {
+        localStorage.setItem('jirgah_menu_version', String(res.data.version));
       }
     }
 
@@ -1391,16 +1468,15 @@ async function checkAndInitializeMenu() {
   };
 
   try {
-    const res = await fetch(CONFIG.GAS_URL, {
+    const res = await apiRequest(CONFIG.GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
-    if (data.status !== 'success') throw new Error(data.message || 'API rejected initMenu');
+    if (!res.ok) throw new Error(res.message);
     
-    if (data.version) {
-      localStorage.setItem('jirgah_menu_version', String(data.version));
+    if (res.data.version) {
+      localStorage.setItem('jirgah_menu_version', String(res.data.version));
     }
     
     showToast('Menu Sync Complete ✓', 'success');
@@ -1429,4 +1505,55 @@ function timeAgo(ts) {
   if (hrs < 24) return `${hrs} hr${hrs > 1 ? 's' : ''} ago`;
   const days = Math.floor(hrs / 24);
   return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+// ===================== SYSTEM BACKUP & RECOVERY =====================
+async function triggerBackup() {
+  if (!CONFIG.GAS_URL) {
+    showToast('Cannot backup local data', 'warning');
+    return;
+  }
+  
+  showToast('Initiating backup...', 'info');
+  const res = await apiRequest(CONFIG.GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({
+      action: 'backupOrders',
+      apiKey: CONFIG.API_KEY
+    })
+  });
+
+  showToast(res.message, res.ok ? 'success' : 'error');
+}
+
+async function restoreOrders() {
+  if (!CONFIG.GAS_URL) {
+    showToast('Cannot restore local data', 'warning');
+    return;
+  }
+
+  const confirmText = prompt("⚠️ DANGER ZONE: This will overwrite live orders with the backup. Type 'RESTORE_NOW' to confirm:");
+
+  if (confirmText !== 'RESTORE_NOW') {
+    showToast('Restore cancelled', 'info');
+    return;
+  }
+
+  showToast('Restoring data...', 'info');
+  const res = await apiRequest(CONFIG.GAS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({
+      action: 'restoreOrders',
+      confirm: 'RESTORE_NOW',
+      apiKey: CONFIG.API_KEY
+    })
+  });
+
+  showToast(res.message, res.ok ? 'success' : 'error');
+  if (res.ok) {
+    AdminState.page = 1;
+    fetchAndRender();
+  }
 }
