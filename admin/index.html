@@ -61,11 +61,11 @@
         <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant">lock</span>
         <input type="password" id="admin-password" placeholder="Enter admin password" class="w-full bg-surface-container-high border border-white/5 rounded-xl py-3 pl-12 pr-4 text-sm text-on-surface focus:border-primary focus:ring-1 focus:ring-primary transition-all shadow-inner" required />
       </div>
-      <button type="submit" class="w-full py-3 rounded-xl bg-primary text-on-primary font-bold text-sm hover:bg-[#ffe066] transition-all active:scale-95 flex justify-center items-center gap-2">
+      <button type="submit" id="login-submit-btn" class="w-full py-3 rounded-xl bg-primary text-on-primary font-bold text-sm hover:bg-[#ffe066] transition-all active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:scale-100">
         Unlock Dashboard
         <span class="material-symbols-outlined text-sm">arrow_forward</span>
       </button>
-      <p id="login-error" class="text-error text-xs text-center font-medium hidden">Incorrect password.</p>
+      <p id="login-error" class="text-error text-xs text-center font-medium hidden"></p>
     </form>
   </div>
 </div>
@@ -276,13 +276,34 @@
       </div>
     </div>
     <!-- Top Items -->
-    <div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 shadow-2xl">
+    <div class="bg-surface-container-low p-6 rounded-xl border border-outline-variant/5 shadow-2xl mb-8">
       <div class="flex justify-between items-center mb-6">
         <h2 class="text-lg font-headline font-bold text-on-surface">Top Selling Items</h2>
         <span class="text-xs text-on-surface-variant italic">Showing all-time data</span>
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-5" id="top-items-grid">
         <!-- Populated by JS -->
+      </div>
+    </div>
+
+    <!-- System Health & Backup -->
+    <div class="bg-[#1c1b1b] p-6 rounded-xl border border-error/20 shadow-2xl mt-4">
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <h2 class="text-lg font-headline font-bold text-error">System Health & Recovery</h2>
+          <p class="text-on-surface-variant text-xs mt-1">Manual snapshots and disaster recovery</p>
+        </div>
+        <span class="material-symbols-outlined text-4xl text-error/30">database</span>
+      </div>
+      <div class="flex flex-col sm:flex-row gap-4 border-t border-white/5 pt-6">
+        <button onclick="triggerBackup()" class="flex-1 py-3 bg-surface-container-high hover:bg-surface-container-highest border border-white/10 rounded-lg flex items-center justify-center gap-3 transition-colors active:scale-95">
+          <span class="material-symbols-outlined text-on-surface-variant text-sm">cloud_upload</span>
+          <span class="text-sm font-bold text-on-surface">Backup Now</span>
+        </button>
+        <button onclick="restoreOrders()" class="flex-1 py-3 bg-error/10 hover:bg-error/20 border border-error/30 rounded-lg flex items-center justify-center gap-3 transition-colors text-error group active:scale-95">
+          <span class="material-symbols-outlined text-sm group-hover:-rotate-90 transition-transform duration-300">restore</span>
+          <span class="text-sm font-bold">Restore Latest Backup</span>
+        </button>
       </div>
     </div>
   </section>
@@ -392,6 +413,7 @@
   </svg>
 </div>
 
+<script src="../config/config.js"></script>
 <script src="../website/menu.js"></script>
 <script src="sampledata.js"></script>
 <script src="app.js"></script>

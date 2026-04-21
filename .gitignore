@@ -21,6 +21,9 @@ node_modules/
 # Windows
 Desktop.ini
 
-# Temporary files
 *.tmp
 *.swp
+
+# Sensitive Configurations
+config.js
+config/config.js
