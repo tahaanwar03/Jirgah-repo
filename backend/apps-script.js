@@ -139,7 +139,8 @@ function ensureSheetsExist() {
     }
     
     if (expectedHeaders.length > 0) {
-      const existing = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+      const lastCol = Math.max(1, sheet.getLastColumn());
+      const existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
       expectedHeaders.forEach((col, i) => {
         if (!existing[i] || existing[i] !== col) {
           sheet.getRange(1, i + 1).setValue(col);
