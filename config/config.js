@@ -4,7 +4,7 @@
 window.JIRGAH_CONFIG = {
   // ===== DEPLOYMENT =====
   // Your deployed Google Apps Script URL
-  GAS_URL: "https://script.google.com/macros/s/AKfycbyvcqmG61-nZ8iU8b4u5M3riIPcI-X50-s90a1TjjOT2NfHDOJlVjw_V7EXJZWHp9-M9A/exec",
+  GAS_URL: "https://script.google.com/macros/s/AKfycbyQUhl5fV1qgBfRuOUnc2WpDHDh92l4KJef2V3ePJwQ7VCX84Q8LdjHrRvkSO3YLdch/exec",
   
   // Must match backend API_KEY (keep as-is unless you changed it in apps-script.js)
   API_KEY: "JIRGAH_SECURE_2026",

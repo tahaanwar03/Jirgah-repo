@@ -773,7 +773,6 @@ function doGet(e) {
       }
     }
     
-    const params = e.parameter || {};
     const page = parseInt(params.page || '1', 10);
     const limit = Math.min(parseInt(params.limit || '50', 10), 100);
     
