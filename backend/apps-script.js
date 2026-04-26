@@ -37,7 +37,7 @@ const STATUS_FLOW = {
 };
 
 const SYSTEM_DEFAULTS = {
-  isOpen: 'false',
+  isOpen: 'true',
   restaurantName: 'Jirgah'
 };
 
@@ -85,7 +85,9 @@ function safeParse(json, fallback = null) {
 // ===== INPUT SANITIZATION =====
 function sanitizeInput(str, maxLen) {
   if (!str) return '';
-  str = String(str).trim();
+  str = String(str).trim()
+    .replace(/<[^>]*>/g, '')   // Strip HTML tags
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // Strip control chars
   return str.slice(0, maxLen);
 }
 
@@ -370,14 +372,14 @@ function handleCreateOrder(ss, body) {
   }
   
   const isOpenSetting = getSystemSetting('isOpen');
-  const isOpen = isOpenSetting === 'true';
+  const isOpen = String(isOpenSetting).toLowerCase() === 'true';
   if (!isOpen) {
     return respond(false, 'Restaurant is currently closed');
   }
   
-  const queueSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_QUEUE);
+  const mainSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
   const requiredCols = ['OrderID', 'Timestamp', 'CustomerName'];
-  const col = getRequiredColumnMap(queueSheet, requiredCols);
+  const col = getRequiredColumnMap(mainSheet, requiredCols);
   const now = new Date().toISOString();
   const history = JSON.stringify([{ status: 'Pending', time: now }]);
   
@@ -404,10 +406,10 @@ function handleCreateOrder(ss, body) {
     history
   ];
   
-  const nextRow = queueSheet.getLastRow() + 1;
+  const nextRow = mainSheet.getLastRow() + 1;
   COLUMNS.ORDER.forEach((colName, i) => {
     if (col[colName]) {
-      queueSheet.getRange(nextRow, col[colName]).setValue(row[i]);
+      mainSheet.getRange(nextRow, col[colName]).setValue(row[i]);
     } else {
       // Column not in map yet — append in order
     }
@@ -485,13 +487,13 @@ function handleUpdateMenu(ss, body) {
   const available = body.Available !== undefined ? body.Available : true;
   
   const rowData = [
-    body.ID || '',
-    body.Category || '',
-    body.Name || '',
-    body.Description || '',
+    sanitizeInput(body.ID || '', 50),
+    sanitizeInput(body.Category || '', 50),
+    sanitizeInput(body.Name || '', 100),
+    sanitizeInput(body.Description || '', 500),
     body.Price || 0,
     body.Image || '',
-    body.Badge || '',
+    sanitizeInput(body.Badge || '', 20),
     body.Variants_JSON || '[]',
     version,
     now,
@@ -508,8 +510,10 @@ function handleUpdateMenu(ss, body) {
     sheet.appendRow(rowData);
   }
   
+  // Invalidate the orders cache so the next doGet serves fresh data
   getCache().remove(CACHE_KEYS.ORDERS);
-  getCache().put('menu_version', String(version), 300);
+  // Also invalidate any cached version string
+  getCache().remove('menu_version');
   
   return respond(true, 'Menu updated', { version });
 }
@@ -544,7 +548,7 @@ function handleInitMenu(ss, body) {
     sheet.getRange(2, 1, newRows.length, newRows[0].length).setValues(newRows);
   }
   
-  getCache().put('menu_version', String(version), 300);
+  getCache().remove('menu_version');
   getCache().remove(CACHE_KEYS.ORDERS);
   
   return respond(true, 'Menu initialized', { version });
@@ -560,7 +564,12 @@ function handleToggleAvailability(ss, body) {
       const currentValue = data[i][col.Available - 1];
       const newValue = currentValue !== true && currentValue !== 'true';
       sheet.getRange(i + 1, col.Available).setValue(newValue);
+      // Bump the version on this row so doGet sees a new menuVersion immediately
+      const newVersion = new Date().getTime();
+      sheet.getRange(i + 1, col.Version).setValue(newVersion);
+      sheet.getRange(i + 1, col.LastUpdated).setValue(new Date().toISOString());
       getCache().remove(CACHE_KEYS.ORDERS);
+      getCache().remove('menu_version');
       return respond(true, 'Availability toggled', { available: newValue });
     }
   }
@@ -596,51 +605,7 @@ function handleGetAllowedStatuses(ss, body) {
   return respond(false, 'Order not found');
 }
 
-function handleAcquireLock(ss, body) {
-  const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-  const col = getColumnMap(sheet);
-  const data = sheet.getDataRange().getValues();
-  const now = new Date().toISOString();
-  const adminId = body.adminId || 'admin';
-  
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][col.OrderID - 1] === body.orderId) {
-      const currentLock = data[i][col.LockedBy - 1];
-      const lockTime = data[i][col.LockedAt - 1] ? new Date(data[i][col.LockedAt - 1]) : null;
-      
-      if (currentLock && currentLock !== adminId && lockTime) {
-        const lockAge = (Date.now() - lockTime.getTime()) / 1000;
-        if (lockAge < 30) {
-          return respond(false, 'Order is being edited by another admin', { lockedBy: currentLock });
-        }
-      }
-      
-      sheet.getRange(i + 1, col.LockedBy).setValue(adminId);
-      sheet.getRange(i + 1, col.LockedAt).setValue(now);
-      return respond(true, 'Lock acquired', { lockedBy: adminId });
-    }
-  }
-  return respond(false, 'Order not found');
-}
-
-function handleReleaseLock(ss, body) {
-  const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-  const col = getColumnMap(sheet);
-  const data = sheet.getDataRange().getValues();
-  const adminId = body.adminId || 'admin';
-  
-  for (let i = 1; i < data.length; i++) {
-    if (data[i][col.OrderID - 1] === body.orderId) {
-      if (data[i][col.LockedBy - 1] === adminId) {
-        sheet.getRange(i + 1, col.LockedBy).setValue('');
-        sheet.getRange(i + 1, col.LockedAt).setValue('');
-        return respond(true, 'Lock released');
-      }
-      return respond(false, 'Cannot release lock owned by another admin');
-    }
-  }
-  return respond(false, 'Order not found');
-}
+// Lock mechanisms removed: single admin system does not require locks.
 
 // ===== ROUTING =====
 function routeRequest(ss, body) {
@@ -661,14 +626,13 @@ function routeRequest(ss, body) {
       return handleSetSystem(ss, body);
     case 'getAllowedStatuses':
       return handleGetAllowedStatuses(ss, body);
-    case 'acquireLock':
-      return handleAcquireLock(ss, body);
-    case 'releaseLock':
-      return handleReleaseLock(ss, body);
+    // Removed acquireLock and releaseLock cases
     case 'backupOrders':
       return backupOrders();
     case 'restoreOrders':
       return restoreFromBackup(body);
+    case 'getAnalytics':
+      return handleGetAnalytics(ss, body);
     default:
       return handleCreateOrder(ss, body);
   }
@@ -739,6 +703,61 @@ function restoreFromBackup(body) {
   }
 }
 
+function handleGetAnalytics(ss, body) {
+  const timeframe = body.timeframe || 'month'; // 'today', 'week', 'month', 'prevMonth'
+  const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
+  const data = sheet.getDataRange().getValues();
+  const orders = mapRows(data, 'order');
+  
+  const now = new Date();
+  let startTime = 0;
+  let endTime = now.getTime();
+  
+  if (timeframe === 'today') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    startTime = today.getTime();
+  } else if (timeframe === 'week') {
+    startTime = now.getTime() - (7 * 24 * 60 * 60 * 1000);
+  } else if (timeframe === 'month') {
+    startTime = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+  } else if (timeframe === 'prevMonth') {
+    const lastMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    startTime = lastMonthStart.getTime();
+    endTime = lastMonthEnd.getTime();
+  }
+  
+  const filtered = orders.filter(o => {
+    const t = new Date(o.Timestamp).getTime();
+    return t >= startTime && t <= endTime;
+  });
+  
+  let revenue = 0;
+  let active = 0;
+  let delivered = 0;
+  let cancelled = 0;
+  
+  filtered.forEach(o => {
+    if (['Pending', 'Accepted', 'Preparing', 'Out for Delivery'].includes(o.Status)) active++;
+    else if (o.Status === 'Delivered') {
+      delivered++;
+      revenue += Number(o.Total) || 0;
+    }
+    else if (o.Status === 'Cancelled') cancelled++;
+  });
+  
+  return respond(true, 'Analytics fetched', {
+    totalOrders: filtered.length,
+    revenue,
+    active,
+    delivered,
+    cancelled,
+    orders: filtered // Return the filtered orders for chart rendering on the frontend
+  });
+}
+
+
 // ===== ENTRY POINTS =====
 function doGet(e) {
   try {
@@ -754,7 +773,7 @@ function doGet(e) {
     
     const isOpenSetting = getSystemSetting('isOpen');
     const restaurantName = getSystemSetting('restaurantName') || 'Jirgah';
-    const isOpen = isOpenSetting === 'true';
+    const isOpen = String(isOpenSetting).toLowerCase() === 'true';
     
     const ordersSheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
     const menuSheet = ss.getSheetByName(SHEET_NAMES.MENU);
@@ -765,20 +784,72 @@ function doGet(e) {
     const orders = mapRows(ordersData, 'order');
     const menu = mapRows(menuData, 'menu');
     
-    let menuVersion = cache.get('menu_version') || '0';
-    const menuItem = menuData.length > 1 ? menuData[1] : null;
-    if (menuItem) {
+    // Always compute menuVersion fresh from the Sheet so updates reflect immediately.
+    // Do NOT cache this — the whole point is to detect changes.
+    let menuVersion = '0';
+    if (menuData.length > 1) {
       const col = getColumnMap(menuSheet);
-      if (menuItem[col.Version - 1]) {
-        menuVersion = String(menuItem[col.Version - 1]);
+      let maxVersion = 0;
+      for (let i = 1; i < menuData.length; i++) {
+        const v = parseInt(menuData[i][col.Version - 1], 10);
+        if (!isNaN(v) && v > maxVersion) {
+          maxVersion = v;
+        }
+      }
+      if (maxVersion > 0) {
+        menuVersion = String(maxVersion);
       }
     }
     
     const page = parseInt(params.page || '1', 10);
     const limit = Math.min(parseInt(params.limit || '50', 10), 100);
     
+    // Calculate global status counts
+    const statusCounts = {
+      Pending: 0,
+      Accepted: 0,
+      Preparing: 0,
+      'Out for Delivery': 0,
+      Delivered: 0,
+      Cancelled: 0,
+      Active: 0
+    };
+    
+    orders.forEach(o => {
+      const s = o.Status || 'Pending';
+      if (statusCounts[s] !== undefined) statusCounts[s]++;
+      if (['Pending', 'Accepted', 'Preparing', 'Out for Delivery'].includes(s)) {
+        statusCounts.Active++;
+      }
+    });
+    
     // Reverse sort so newest is first
     orders.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+    
+    // Calculate today's KPIs
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayTime = todayStart.getTime();
+    
+    const todayKPIs = {
+      totalOrders: 0,
+      revenue: 0,
+      active: 0,
+      delivered: 0,
+      cancelled: 0
+    };
+    
+    orders.forEach(o => {
+      if (new Date(o.Timestamp).getTime() >= todayTime) {
+        todayKPIs.totalOrders++;
+        if (['Pending', 'Accepted', 'Preparing', 'Out for Delivery'].includes(o.Status)) todayKPIs.active++;
+        else if (o.Status === 'Delivered') {
+          todayKPIs.delivered++;
+          todayKPIs.revenue += Number(o.Total) || 0;
+        }
+        else if (o.Status === 'Cancelled') todayKPIs.cancelled++;
+      }
+    });
     
     const start = (page - 1) * limit;
     const end = start + limit;
@@ -787,6 +858,8 @@ function doGet(e) {
     return respond(true, 'Data fetched', {
       orders: paginatedOrders,
       totalOrders: orders.length,
+      statusCounts: statusCounts,
+      todayKPIs: todayKPIs,
       page,
       limit,
       totalPages: Math.ceil(orders.length / limit),
@@ -913,27 +986,4 @@ function archiveOldOrders() {
   }
 }
 
-function cleanupOldLocks() {
-  try {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName(SHEET_NAMES.ORDERS_MAIN);
-    const col = getColumnMap(sheet);
-    const data = sheet.getDataRange().getValues();
-    const now = Date.now();
-    const lockTimeout = 30 * 1000;
-    let cleaned = 0;
-    
-    for (let i = data.length - 1; i >= 1; i--) {
-      const lockTime = data[i][col.LockedAt - 1] ? new Date(data[i][col.LockedAt - 1]).getTime() : 0;
-      if (lockTime && (now - lockTime) > lockTimeout) {
-        sheet.getRange(i + 1, col.LockedBy).setValue('');
-        sheet.getRange(i + 1, col.LockedAt).setValue('');
-        cleaned++;
-      }
-    }
-    
-    if (cleaned > 0) logError('CLEANED_LOCKS', cleaned);
-  } catch (err) {
-    logError('CLEANUP_ERROR', err.message);
-  }
-}
+// cleanupOldLocks removed

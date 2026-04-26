@@ -4,7 +4,7 @@
 window.JIRGAH_CONFIG = {
   // ===== DEPLOYMENT =====
   // Your deployed Google Apps Script URL
-  GAS_URL: "https://script.google.com/macros/s/AKfycbyw0McGtKrrApb0YURZHapoiZ8Qq_-iRXmmV0H5o55zc8BEOZR-LURW5Dgm8-zRsMQ5/exec",
+  GAS_URL: "https://script.google.com/macros/s/AKfycbzBlV3WPSU5WXK_ytJdOsOwPP2dDQZPLyH4lMlAqpB7VnW16nqdivETrDD42Bnc2-DV/exec",
   
   // Must match backend API_KEY (keep as-is unless you changed it in apps-script.js)
   API_KEY: "JIRGAH_SECURE_2026",
@@ -19,7 +19,7 @@ window.JIRGAH_CONFIG = {
   CURRENCY_SYMBOL: "₨",
 
   // ===== ADMIN SECURITY =====
-  // Simple password (not hashed for easy owner use)
+  // ⚠️ CHANGE THIS before going live! Use something only the owner knows.
   ADMIN_PASSWORD: "admin",
 
   // ===== POLLING SETTINGS =====

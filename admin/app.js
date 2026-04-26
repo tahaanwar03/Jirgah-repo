@@ -69,11 +69,17 @@ const AdminState = {
   limit: 50,
   totalPages: 1,
   totalOrders: 0,
+  statusCounts: { Pending: 0, Active: 0, Delivered: 0, Cancelled: 0 },
+  todayKPIs: { totalOrders: 0, revenue: 0, active: 0, delivered: 0, cancelled: 0 },
   adminId: 'admin_' + Math.random().toString(36).substr(2, 6),
   lockedOrders: new Map(),
   isOpen: true,
   allowedStatuses: {},
 };
+
+// Load known order IDs from persistence to prevent notification spam on refresh
+const PERSISTED_KNOWN_IDS = JSON.parse(localStorage.getItem('jirgah_known_orders') || '[]');
+AdminState.knownOrderIds = new Set(PERSISTED_KNOWN_IDS);
 
 // ===================== AUTH STATE =====================
 const AdminAuth = {
@@ -296,7 +302,7 @@ function navigateTo(view) {
   if (bc) bc.textContent = labels[view] || view;
 
   if (view === 'analytics') {
-    renderAnalytics();
+    fetchAndRenderAnalytics();
   }
 }
 
@@ -336,6 +342,8 @@ async function fetchOrders() {
     AdminState.orders = (raw.orders || []).map(normalizeOrder);
     AdminState.totalPages = raw.totalPages || 1;
     AdminState.totalOrders = raw.totalOrders || AdminState.orders.length;
+    AdminState.statusCounts = raw.statusCounts || AdminState.statusCounts;
+    AdminState.todayKPIs = raw.todayKPIs || AdminState.todayKPIs;
     AdminState.menu   = raw.menu    || [];
     AdminState.lastUpdated = raw.lastUpdated || AdminState.lastUpdated;
     
@@ -344,22 +352,32 @@ async function fetchOrders() {
       updateOpenCloseUI();
     }
 
-    const newIds = AdminState.orders.filter(o => !AdminState.knownOrderIds.has(o.OrderID));
-    if (AdminState.knownOrderIds.size > 0 && newIds.length > 0) {
-      showToast(`${newIds.length} new order${newIds.length > 1 ? 's' : ''} received!`, 'info');
+    // Notification Logic — Only notify for "Pending" orders that haven't been seen
+    const newPendingOrders = AdminState.orders.filter(o => o.Status === 'Pending' && !AdminState.knownOrderIds.has(o.OrderID));
+    
+    if (AdminState.knownOrderIds.size > 0 && newPendingOrders.length > 0) {
+      showToast(`${newPendingOrders.length} new order${newPendingOrders.length > 1 ? 's' : ''} received!`, 'info');
       document.getElementById('notif-dot').style.display = 'block';
       
       try {
         new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(() => {});
       } catch (e) {}
       
-      newIds.forEach(o => AdminState.freshOrderIds.add(o.OrderID));
+      newPendingOrders.forEach(o => AdminState.freshOrderIds.add(o.OrderID));
       setTimeout(() => {
-        newIds.forEach(o => AdminState.freshOrderIds.delete(o.OrderID));
+        newPendingOrders.forEach(o => AdminState.freshOrderIds.delete(o.OrderID));
         renderOrdersTable();
       }, 10000);
     }
+    
+    // Persist all seen IDs to prevent future spam
     AdminState.orders.forEach(o => AdminState.knownOrderIds.add(o.OrderID));
+    if (AdminState.knownOrderIds.size > 500) {
+        // Simple garbage collection for the Set
+        const arr = Array.from(AdminState.knownOrderIds).slice(-500);
+        AdminState.knownOrderIds = new Set(arr);
+    }
+    localStorage.setItem('jirgah_known_orders', JSON.stringify(Array.from(AdminState.knownOrderIds)));
     AdminState.lastFetchTime = new Date();
     
     computeAllowedStatuses();
@@ -467,7 +485,7 @@ function startAutoRefresh() {
   AdminState.refreshInterval = setInterval(() => {
     AdminState.page = 1;
     fetchAndRender();
-  }, CONFIG.REFRESH_INTERVAL_MS);
+  }, CONFIG.POLL_INTERVAL_MS || 30000);
 }
 
 function stopAutoRefresh() {
@@ -508,13 +526,15 @@ function applyFiltersAndRender() {
 // ===================== FILTER TABS =====================
 function renderFilterTabs() {
   const counts = {
-    Active: AdminState.orders.filter(o => ORDER_STATUS.ACTIVE.includes(o.Status)).length,
-    Delivered: AdminState.orders.filter(o => o.Status === 'Delivered').length,
-    Cancelled: AdminState.orders.filter(o => o.Status === 'Cancelled').length,
-    All: AdminState.orders.length
+    Pending: AdminState.statusCounts.Pending || 0,
+    Active: AdminState.statusCounts.Active || 0,
+    Delivered: AdminState.statusCounts.Delivered || 0,
+    Cancelled: AdminState.statusCounts.Cancelled || 0,
+    All: AdminState.totalOrders || 0
   };
 
   const tabs = [
+    { key: 'Pending', label: 'New' },
     { key: 'Active', label: 'Active' },
     { key: 'Delivered', label: 'Delivered' },
     { key: 'Cancelled', label: 'Cancelled' },
@@ -536,15 +556,14 @@ function renderFilterTabs() {
 
 // ===================== DASHBOARD =====================
 function renderDashboard() {
-  const orders = AdminState.orders;
-  const kpis = computeKPIs(orders);
+  const kpis = AdminState.todayKPIs; // Use today's KPIs for Dashboard
 
   const kpiGrid = document.getElementById('kpi-grid');
   kpiGrid.innerHTML = `
     <div class="col-span-1 sm:col-span-2 bg-[#1c1b1b] rounded-xl p-6 relative overflow-hidden flex flex-col justify-between border-l-4 border-primary hover:bg-[#201f1f] transition-all duration-300">
       <div class="flex justify-between items-start mb-3">
         <div>
-          <p class="text-[10px] uppercase tracking-[0.2em] text-[#d4af37] font-semibold mb-1">Total Net Revenue</p>
+          <p class="text-[10px] uppercase tracking-[0.2em] text-[#d4af37] font-semibold mb-1">Today's Revenue</p>
           <h2 class="text-4xl font-headline font-bold text-on-background">Rs. ${kpis.revenue.toLocaleString()}</h2>
         </div>
         <div class="p-3 bg-primary/10 rounded-full text-primary">
@@ -558,7 +577,7 @@ function renderDashboard() {
         <div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-[#d4af37]">
           <span class="material-symbols-outlined">shopping_bag</span>
         </div>
-        <p class="text-xs uppercase tracking-widest text-on-surface-variant font-medium">Total Orders</p>
+        <p class="text-xs uppercase tracking-widest text-on-surface-variant font-medium">Today's Orders</p>
       </div>
       <h3 class="text-3xl font-headline font-semibold text-on-background">${kpis.totalOrders.toLocaleString()}</h3>
     </div>
@@ -567,7 +586,7 @@ function renderDashboard() {
         <div class="w-10 h-10 rounded-lg bg-surface-container-highest flex items-center justify-center text-primary">
           <span class="material-symbols-outlined">pending_actions</span>
         </div>
-        <p class="text-xs uppercase tracking-widest text-on-surface-variant font-medium">Active</p>
+        <p class="text-xs uppercase tracking-widest text-on-surface-variant font-medium">Currently Active</p>
       </div>
       <h3 class="text-3xl font-headline font-semibold text-on-background">${kpis.active}</h3>
     </div>`;
@@ -579,7 +598,7 @@ function renderDashboard() {
         <span class="material-symbols-outlined text-2xl">task_alt</span>
       </div>
       <div>
-        <p class="text-[10px] uppercase tracking-widest text-[#d4af37] mb-1">Delivered</p>
+        <p class="text-[10px] uppercase tracking-widest text-[#d4af37] mb-1">Delivered Today</p>
         <h4 class="text-2xl font-headline font-bold text-on-background">${kpis.delivered}</h4>
         <p class="text-xs text-on-surface-variant italic">${kpis.totalOrders > 0 ? Math.round(kpis.delivered/kpis.totalOrders*100) : 0}% success rate</p>
       </div>
@@ -589,7 +608,7 @@ function renderDashboard() {
         <span class="material-symbols-outlined text-2xl">cancel</span>
       </div>
       <div>
-        <p class="text-[10px] uppercase tracking-widest text-error mb-1">Cancelled</p>
+        <p class="text-[10px] uppercase tracking-widest text-error mb-1">Cancelled Today</p>
         <h4 class="text-2xl font-headline font-bold text-on-background">${kpis.cancelled}</h4>
         <p class="text-xs text-on-surface-variant italic">${kpis.totalOrders > 0 ? Math.round(kpis.cancelled/kpis.totalOrders*100) : 0}% of total</p>
       </div>
@@ -623,16 +642,16 @@ function renderRecentOrdersTable() {
     const badgeClass = statusBadgeClass(o.Status);
     const initials = getInitials(o.CustomerName);
     return `<tr class="hover:bg-white/[0.02] transition-colors">
-      <td class="px-6 py-4 font-mono text-xs text-primary">${o.OrderID}</td>
+      <td class="px-6 py-4 font-mono text-xs text-primary">${esc(o.OrderID)}</td>
       <td class="px-6 py-4">
         <div class="flex items-center gap-3">
-          <div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-[10px] font-bold text-[#d4af37]">${initials}</div>
-          <span class="text-sm font-medium">${o.CustomerName}</span>
+          <div class="w-8 h-8 rounded-full bg-surface-container-highest flex items-center justify-center text-[10px] font-bold text-[#d4af37]">${esc(initials)}</div>
+          <span class="text-sm font-medium">${esc(o.CustomerName)}</span>
         </div>
       </td>
-      <td class="px-6 py-4 text-xs text-on-surface-variant hidden md:table-cell">${truncate(o.Address, 35)}</td>
+      <td class="px-6 py-4 text-xs text-on-surface-variant hidden md:table-cell">${esc(truncate(o.Address, 35))}</td>
       <td class="px-6 py-4 text-sm font-semibold">Rs. ${Number(o.Total).toLocaleString()}</td>
-      <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${badgeClass}">${o.Status}</span></td>
+      <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${badgeClass}">${esc(o.Status)}</span></td>
       <td class="px-6 py-4 text-xs text-on-surface-variant italic hidden lg:table-cell">${timeAgo(o.Timestamp)}</td>
     </tr>`;
   }).join('');
@@ -670,15 +689,15 @@ function renderOrdersTable() {
           <span class="material-symbols-outlined text-xl">${isExpanded ? 'expand_less' : 'expand_more'}</span>
         </button>
       </td>
-      <td class="p-4 font-mono text-sm text-primary">${o.OrderID}</td>
+      <td class="p-4 font-mono text-sm text-primary">${esc(o.OrderID)}</td>
       <td class="p-4 text-sm text-on-surface-variant hidden md:table-cell">${formatTime(o.Timestamp)}</td>
       <td class="p-4">
         <div class="flex flex-col">
-          <span class="text-sm font-semibold text-on-surface">${o.CustomerName}</span>
-          <span class="text-xs text-on-surface-variant">${o.Phone}</span>
+          <span class="text-sm font-semibold text-on-surface">${esc(o.CustomerName)}</span>
+          <span class="text-xs text-on-surface-variant">${esc(o.Phone)}</span>
         </div>
       </td>
-      <td class="p-4 text-sm text-on-surface-variant italic truncate max-w-[180px] hidden lg:table-cell">${truncate(itemsPreview, 50)}</td>
+      <td class="p-4 text-sm text-on-surface-variant italic truncate max-w-[180px] hidden lg:table-cell">${esc(truncate(itemsPreview, 50))}</td>
       <td class="p-4 text-sm font-bold">Rs. ${Number(o.Total).toLocaleString()}</td>
       <td class="p-4">
         <select data-order-id="${o.OrderID}"
@@ -753,7 +772,7 @@ function buildExpandedRow(o, items) {
               <tbody class="divide-y divide-white/5">
                 ${items.map(i => `
                 <tr>
-                  <td class="px-4 py-3 text-sm text-on-surface">${i.name}</td>
+                  <td class="px-4 py-3 text-sm text-on-surface">${esc(i.name)}</td>
                   <td class="px-4 py-3 text-sm text-on-surface text-center">${i.qty}</td>
                   <td class="px-4 py-3 text-sm text-on-surface text-right">Rs. ${(i.price * i.qty).toLocaleString()}</td>
                 </tr>`).join('')}
@@ -770,15 +789,15 @@ function buildExpandedRow(o, items) {
             <div class="bg-background/40 p-4 rounded-xl border border-white/5 space-y-3">
               <div>
                 <span class="text-[10px] uppercase tracking-widest text-on-surface-variant/60 block">Phone</span>
-                <span class="text-sm text-on-surface">${o.Phone}</span>
+                <span class="text-sm text-on-surface">${esc(o.Phone)}</span>
               </div>
               <div>
                 <span class="text-[10px] uppercase tracking-widest text-on-surface-variant/60 block">Delivery Address</span>
-                <span class="text-sm text-on-surface leading-relaxed">${o.Address}</span>
+                <span class="text-sm text-on-surface leading-relaxed">${esc(o.Address)}</span>
               </div>
               ${o.Notes ? `<div>
                 <span class="text-[10px] uppercase tracking-widest text-on-surface-variant/60 block">Special Instructions</span>
-                <span class="text-sm text-on-surface italic">"${o.Notes}"</span>
+                <span class="text-sm text-on-surface italic">"${esc(o.Notes)}"</span>
               </div>` : ''}
             </div>
           </div>
@@ -855,43 +874,6 @@ function changePage(p) {
 }
 
 // ===================== STATUS UPDATE =====================
-async function acquireOrderLock(orderId) {
-  if (!CONFIG.GAS_URL) return true;
-  try {
-    const res = await apiRequest(CONFIG.GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ 
-        action: 'acquireLock', 
-        apiKey: CONFIG.API_KEY, 
-        orderId,
-        adminId: AdminState.adminId 
-      })
-    });
-    return res.ok;
-  } catch (e) {
-    console.warn('Lock acquire failed:', e);
-    return true;
-  }
-}
-
-async function releaseOrderLock(orderId) {
-  if (!CONFIG.GAS_URL) return;
-  try {
-    await apiRequest(CONFIG.GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ 
-        action: 'releaseLock', 
-        apiKey: CONFIG.API_KEY, 
-        orderId,
-        adminId: AdminState.adminId 
-      })
-    });
-  } catch (e) {
-    console.warn('Lock release failed:', e);
-  }
-}
 
 async function handleStatusUpdate(orderId, newStatus, selectEl) {
   const orderInState = AdminState.orders.find(o => o.OrderID === orderId);
@@ -905,15 +887,13 @@ async function handleStatusUpdate(orderId, newStatus, selectEl) {
     return;
   }
 
-  const lockCheck = await acquireOrderLock(orderId);
-  if (!lockCheck) {
-    showToast('Order is being edited by another admin', 'warning');
-    selectEl.value = oldStatus;
-    return;
-  }
-
+  // Completely removed the network lock for a single-admin setup to prevent bottlenecks
+  // so the UI updates instantly.
+  
   orderInState.Status = newStatus;
   updateSelectStyle(selectEl, newStatus);
+  renderDashboard(); // Optimistic re-render
+  renderOrdersTable();
 
   if (!CONFIG.GAS_URL) {
     showToast(`Order ${orderId} marked as ${newStatus}`, 'success');
@@ -932,16 +912,13 @@ async function handleStatusUpdate(orderId, newStatus, selectEl) {
     
     showToast(`Order ${orderId} marked as ${newStatus}`, 'success');
     AdminState.allowedStatuses[orderId] = ORDER_STATUS.FLOW[newStatus] || [];
-    renderDashboard();
-    renderOrdersTable();
   } catch (err) {
     orderInState.Status = oldStatus;
     selectEl.value = oldStatus;
     updateSelectStyle(selectEl, oldStatus);
     showToast('Status update failed: ' + err.message, 'error');
-  } finally {
-    releaseOrderLock(orderId);
   }
+  // No lock to release
 }
 
 function updateSelectStyle(sel, status) {
@@ -967,11 +944,7 @@ function closeDeleteConfirm() {
 async function handleDeleteOrder(orderId) {
   closeDeleteConfirm();
   
-  const lockCheck = await acquireOrderLock(orderId);
-  if (!lockCheck) {
-    showToast('Cannot delete — order is being edited', 'warning');
-    return;
-  }
+  // No lock check needed for single admin
 
   AdminState.orders = AdminState.orders.filter(o => o.OrderID !== orderId);
   AdminState.knownOrderIds.delete(orderId);
@@ -991,16 +964,49 @@ async function handleDeleteOrder(orderId) {
   } catch (err) {
     console.error('Delete sync failed:', err);
     showToast('Deleted locally — Sheet sync failed. ' + err.message, 'warning');
-  } finally {
-    releaseOrderLock(orderId);
   }
 }
 
 // ===================== ANALYTICS =====================
-function renderAnalytics() {
-  const orders = AdminState.orders;
-  const kpis = computeKPIs(orders);
+async function fetchAndRenderAnalytics() {
+  const timeframeEl = document.getElementById('analytics-timeframe');
+  const timeframe = timeframeEl ? timeframeEl.value : 'month';
+  
+  if (!timeframeEl.dataset.bound) {
+    timeframeEl.addEventListener('change', fetchAndRenderAnalytics);
+    timeframeEl.dataset.bound = 'true';
+  }
 
+  const kpiGrid = document.getElementById('analytics-kpi-grid');
+  kpiGrid.style.opacity = '0.5';
+
+  if (!CONFIG.GAS_URL) {
+    // Fallback for local testing
+    renderAnalytics(computeKPIs(AdminState.orders), AdminState.orders);
+    kpiGrid.style.opacity = '1';
+    return;
+  }
+
+  try {
+    const res = await apiRequest(CONFIG.GAS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'getAnalytics', apiKey: CONFIG.API_KEY, timeframe })
+    });
+
+    if (res.ok) {
+      renderAnalytics(res.data, res.data.orders);
+    } else {
+      throw new Error(res.message);
+    }
+  } catch (err) {
+    showToast('Failed to load analytics: ' + err.message, 'error');
+  } finally {
+    kpiGrid.style.opacity = '1';
+  }
+}
+
+function renderAnalytics(kpis, orders) {
   const deliveryRate = kpis.totalOrders > 0 ? Math.round(kpis.delivered / kpis.totalOrders * 100) : 0;
   const avgOrderValue = kpis.totalOrders > 0 ? Math.round(kpis.revenue / (kpis.delivered || 1)) : 0;
 
@@ -1025,10 +1031,10 @@ function renderAnalytics() {
     </div>
     <div class="bg-surface-container-low p-5 rounded-xl border border-outline-variant/5 shadow-xl">
       <div class="flex justify-between items-start mb-2">
-        <span class="text-on-surface-variant text-xs font-label uppercase tracking-wider">Active Orders</span>
-        <span class="material-symbols-outlined text-primary text-lg">pending_actions</span>
+        <span class="text-on-surface-variant text-xs font-label uppercase tracking-wider">Total Orders</span>
+        <span class="material-symbols-outlined text-primary text-lg">shopping_bag</span>
       </div>
-      <h3 class="text-3xl font-headline font-bold text-on-surface">${kpis.active}</h3>
+      <h3 class="text-3xl font-headline font-bold text-on-surface">${kpis.totalOrders}</h3>
     </div>
     <div class="bg-surface-container-low p-5 rounded-xl border border-outline-variant/5 shadow-xl">
       <div class="flex justify-between items-start mb-2">
@@ -1176,8 +1182,18 @@ function computeKPIs(orders) {
   };
 }
 
-// ===================== TOAST =====================
-function showToast(message, type = 'success') {
+// ===================== HELPERS =====================
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+const showToast = (message, type = 'success') => {
   const container = document.getElementById('toast-container');
   const colors = {
     success: 'border-l-4 border-primary',
@@ -1192,7 +1208,7 @@ function showToast(message, type = 'success') {
   toast.className = `toast-in pointer-events-all flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl min-w-[240px] max-w-[340px] bg-[#1c1b1b] ${colors[type] || colors.info}`;
   toast.innerHTML = `
     <span class="material-symbols-outlined text-lg flex-shrink-0 ${iconColors[type]}" style="font-variation-settings:'FILL' 1;">${icons[type]}</span>
-    <span class="text-sm font-body flex-1">${message}</span>`;
+    <span class="text-sm font-body flex-1">${esc(message)}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {

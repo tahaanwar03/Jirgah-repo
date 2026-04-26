@@ -91,6 +91,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   setInterval(() => {
     processFailedOrders();
   }, 60000);
+
+  // Real-time syncing for system state and menu (every 30s)
+  setInterval(() => {
+    fetchSystemState();
+    fetchMenu();
+  }, 30000);
 });
 
 async function fetchSystemState() {
@@ -129,37 +135,43 @@ async function fetchMenu() {
     clearTimeout(timeout);
     
     if (res.ok && res.data.menu && res.data.menu.length > 0) {
-      const serverVersion = res.data.menuVersion;
-      const localVersion = localStorage.getItem('jirgah_menu_version');
-      
-      if (serverVersion && serverVersion !== localVersion) {
-        window.LIVE_MENU = res.data.menu.map(item => ({
-          id: item.ID,
-          category: item.Category,
-          name: item.Name,
-          description: item.Description,
-          price: parseFloat(item.Price),
-          image: item.Image,
-          badge: item.Badge,
-          available: item.Available !== false && item.Available !== 'false',
-          variants: (() => { try { return JSON.parse(item.Variants_JSON || '[]'); } catch { return []; } })()
-        }));
+      const serverVersion = String(res.data.menuVersion || '0');
+      const localVersion  = localStorage.getItem('jirgah_menu_version') || '0';
+
+      // Always build and apply the live menu from the server.
+      // Version is only used to decide whether to update localStorage cache.
+      const liveMenu = res.data.menu.map(item => ({
+        id: item.ID,
+        category: item.Category,
+        name: item.Name,
+        description: item.Description,
+        price: parseFloat(item.Price),
+        image: item.Image,
+        badge: item.Badge,
+        available: item.Available !== false && item.Available !== 'false',
+        variants: (() => { try { return JSON.parse(item.Variants_JSON || '[]'); } catch { return []; } })()
+      }));
+
+      const menuChanged = serverVersion !== localVersion;
+
+      window.LIVE_MENU = liveMenu;
+      AppState.ui.menuLoaded = true;
+
+      if (menuChanged) {
         localStorage.setItem('jirgah_menu_version', serverVersion);
-        localStorage.setItem('jirgah_live_menu', JSON.stringify(window.LIVE_MENU));
-        AppState.ui.menuLoaded = true;
-        console.log('Menu updated from Sheet (version: ' + serverVersion + ').');
-        renderMenuGrid(AppState.ui.activeCategory);
-      } else if (localVersion && serverVersion === localVersion) {
-        const cachedMenu = localStorage.getItem('jirgah_live_menu');
-        if (cachedMenu) {
-          window.LIVE_MENU = JSON.parse(cachedMenu);
-          AppState.ui.menuLoaded = true;
-          console.log('Using cached menu (version: ' + localVersion + ').');
-          renderMenuGrid(AppState.ui.activeCategory);
-        }
+        localStorage.setItem('jirgah_live_menu', JSON.stringify(liveMenu));
+        console.log(`[Menu] Updated to v${serverVersion} (was v${localVersion}).`);
+        renderMenuGrid(AppState.ui.activeCategory); // Re-render only when something changed
       }
     } else {
-      console.warn('Live menu empty or unavailable — using local menu.');
+      // Server returned no menu — try localStorage fallback
+      const cachedMenu = localStorage.getItem('jirgah_live_menu');
+      if (cachedMenu && !window.LIVE_MENU) {
+        window.LIVE_MENU = JSON.parse(cachedMenu);
+        AppState.ui.menuLoaded = true;
+        renderMenuGrid(AppState.ui.activeCategory);
+        console.warn('[Menu] Server empty — using cached menu.');
+      }
     }
     
     if (res.ok && res.data.system) {
@@ -170,9 +182,18 @@ async function fetchMenu() {
   } catch (err) {
     clearTimeout(timeout);
     if (err.name === 'AbortError') {
-      console.warn('fetchMenu timed out — using local menu as fallback.');
+      console.warn('[Menu] Fetch timed out — using local fallback.');
     } else {
-      console.error('fetchMenu failed:', err);
+      console.error('[Menu] fetchMenu failed:', err);
+    }
+    // On any error, use localStorage fallback if we don't have a live menu yet
+    if (!window.LIVE_MENU) {
+      const cachedMenu = localStorage.getItem('jirgah_live_menu');
+      if (cachedMenu) {
+        window.LIVE_MENU = JSON.parse(cachedMenu);
+        AppState.ui.menuLoaded = true;
+        renderMenuGrid(AppState.ui.activeCategory);
+      }
     }
   }
 }
@@ -448,7 +469,9 @@ function updateQty(cartId, direction) {
 }
 
 function recalculateCart() {
-  AppState.cart.total = AppState.cart.items.reduce((sum, i) => sum + (i.price * i.qty), 0);
+  const rawTotal = AppState.cart.items.reduce((sum, i) => sum + (i.price * i.qty), 0);
+  // Prevent floating-point precision issues (e.g., 0.30000000004)
+  AppState.cart.total = Math.round(rawTotal * 100) / 100;
   AppState.cart.itemCount = AppState.cart.items.reduce((sum, i) => sum + i.qty, 0);
 }
 
@@ -715,11 +738,16 @@ async function handleFormSubmit(e) {
 
 function queueFailedOrder(order) {
   try {
-    const queue = JSON.parse(localStorage.getItem('jirgah_failed_orders') || '[]');
+    let queue = [];
+    try {
+      queue = JSON.parse(localStorage.getItem('jirgah_failed_orders') || '[]');
+    } catch {
+      localStorage.removeItem('jirgah_failed_orders'); // Clear corrupted data
+    }
     queue.push(order);
     localStorage.setItem('jirgah_failed_orders', JSON.stringify(queue));
   } catch (e) {
-    console.warn('Queue error:', e);
+    console.warn('Queue error (LocalStorage might be full):', e);
   }
 }
 
@@ -729,9 +757,12 @@ async function processFailedOrders() {
   let queue = [];
   try {
     queue = JSON.parse(localStorage.getItem('jirgah_failed_orders') || '[]');
-  } catch (e) { return; }
+  } catch (e) { 
+    localStorage.removeItem('jirgah_failed_orders');
+    return; 
+  }
   
-  if (queue.length === 0) return;
+  if (!Array.isArray(queue) || queue.length === 0) return;
 
   console.log(`Processing ${queue.length} failed order(s) in background...`);
   
@@ -762,11 +793,15 @@ async function processFailedOrders() {
     }
   }
   
-  if (stillFailed.length > 0) {
-    localStorage.setItem('jirgah_failed_orders', JSON.stringify(stillFailed));
-    setTimeout(processFailedOrders, CONFIG.RETRY_DELAY_MS);
-  } else {
-    localStorage.removeItem('jirgah_failed_orders');
+  try {
+    if (stillFailed.length > 0) {
+      localStorage.setItem('jirgah_failed_orders', JSON.stringify(stillFailed));
+      setTimeout(processFailedOrders, CONFIG.RETRY_DELAY_MS);
+    } else {
+      localStorage.removeItem('jirgah_failed_orders');
+    }
+  } catch (e) {
+    console.error('Failed to update retry queue in LocalStorage:', e);
   }
 }
 
@@ -863,7 +898,7 @@ async function handleTrackOrderSubmit() {
     showToast('Failed to track order. Please try again.', 'error');
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<span class="material-symbols-outlined">search</span> Track Order';
+    btn.innerHTML = '<span class="material-symbols-outlined">search</span> Track';
   }
 }
 
@@ -905,13 +940,13 @@ function showTrackingResult(order) {
       <div class="w-16 h-16 mx-auto rounded-full flex items-center justify-center ${getStatusBgClass(order.Status)}">
         <span class="material-symbols-outlined text-3xl">${getStatusIcon(order.Status)}</span>
       </div>
-      <h3 class="text-xl font-bold mt-4">${order.Status}</h3>
-      <p class="text-sm text-on-surface-variant mt-1">Order #${order.OrderID}</p>
+      <h3 class="text-xl font-bold mt-4">${esc(order.Status)}</h3>
+      <p class="text-sm text-on-surface-variant mt-1">Order #${esc(order.OrderID)}</p>
     </div>
     <div class="bg-surface-container-low rounded-xl p-4 mb-4">
       <div class="flex justify-between items-center">
         <span class="text-sm text-on-surface-variant">Customer</span>
-        <span class="text-sm font-semibold">${order.CustomerName}</span>
+        <span class="text-sm font-semibold">${esc(order.CustomerName)}</span>
       </div>
       <div class="flex justify-between items-center mt-2">
         <span class="text-sm text-on-surface-variant">Total</span>
@@ -1009,7 +1044,7 @@ function showToast(message, type = 'success') {
   toast.className = `toast-in pointer-events-all flex items-center gap-3 px-4 py-3 rounded-lg shadow-xl min-w-[240px] max-w-[340px] ${colors[type] || colors.info}`;
   toast.innerHTML = `
     <span class="material-symbols-outlined text-lg flex-shrink-0 ${iconColors[type]}" style="font-variation-settings:'FILL' 1;">${icons[type]}</span>
-    <span class="text-sm font-body flex-1">${message}</span>`;
+    <span class="text-sm font-body flex-1">${esc(message)}</span>`;
   container.appendChild(toast);
 
   setTimeout(() => {
@@ -1017,4 +1052,15 @@ function showToast(message, type = 'success') {
     toast.classList.add('toast-out');
     toast.addEventListener('animationend', () => toast.remove(), { once: true });
   }, 4500);
+}
+
+// ===================== SECURITY HELPER =====================
+function esc(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
