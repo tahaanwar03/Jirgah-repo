@@ -161,7 +161,12 @@ async function fetchMenu() {
         localStorage.setItem('jirgah_menu_version', serverVersion);
         localStorage.setItem('jirgah_live_menu', JSON.stringify(liveMenu));
         console.log(`[Menu] Updated to v${serverVersion} (was v${localVersion}).`);
-        renderMenuGrid(AppState.ui.activeCategory); // Re-render only when something changed
+      }
+      
+      // Always re-render if it changed OR if this is the first successful load
+      if (menuChanged || !window.hasRenderedLive) {
+        window.hasRenderedLive = true;
+        renderMenuGrid(AppState.ui.activeCategory);
       }
     } else {
       // Server returned no menu — try localStorage fallback

@@ -1441,10 +1441,6 @@ async function saveMenuItem(id) {
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(res.message);
-      
-      if (res.data.version) {
-        localStorage.setItem('jirgah_menu_version', String(res.data.version));
-      }
     }
 
     btn.classList.remove('animate-pulse', 'bg-primary', 'text-on-primary', 'shadow-lg');
@@ -1490,10 +1486,6 @@ async function checkAndInitializeMenu() {
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error(res.message);
-    
-    if (res.data.version) {
-      localStorage.setItem('jirgah_menu_version', String(res.data.version));
-    }
     
     showToast('Menu Sync Complete ✓', 'success');
     setTimeout(fetchAndRender, 3000);
