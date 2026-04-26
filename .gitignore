@@ -27,3 +27,8 @@ Desktop.ini
 # Sensitive Configurations
 config.js
 config/config.js
+
+# Internal Documents & Tests
+agents.md
+stress_test.html
+artifacts/

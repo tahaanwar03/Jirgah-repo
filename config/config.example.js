@@ -1,10 +1,10 @@
-// config/config.js — Jirgah Configuration
-// Edit this file to customize your deployment
+// config/config.example.js — Jirgah Configuration Template
+// Rename this file to 'config.js' and edit to customize your deployment
 
 window.JIRGAH_CONFIG = {
   // ===== DEPLOYMENT =====
   // Your deployed Google Apps Script URL
-  GAS_URL: "https://script.google.com/macros/s/AKfycbzBlV3WPSU5WXK_ytJdOsOwPP2dDQZPLyH4lMlAqpB7VnW16nqdivETrDD42Bnc2-DV/exec",
+  GAS_URL: "",
   
   // Must match backend API_KEY (keep as-is unless you changed it in apps-script.js)
   API_KEY: "JIRGAH_SECURE_2026",
@@ -20,7 +20,7 @@ window.JIRGAH_CONFIG = {
 
   // ===== ADMIN SECURITY =====
   // ⚠️ CHANGE THIS before going live! Use something only the owner knows.
-  ADMIN_PASSWORD: "admin",
+  ADMIN_PASSWORD: "changeme",
 
   // ===== POLLING SETTINGS =====
   POLL_INTERVAL_MS: 30000,
@@ -41,7 +41,7 @@ window.JIRGAH_CONFIG = {
 function validateJirgahConfig() {
   const REQUIRED = ["GAS_URL", "API_KEY", "RESTAURANT_NAME", "DELIVERY_FEE", "ADMIN_PASSWORD"];
   const missing = REQUIRED.filter(key => {
-    const value = JIRGAH_CONFIG[key];
+    const value = window.JIRGAH_CONFIG[key];
     return !value || (typeof value === "string" && value.trim() === "") || value === "PASTE_YOUR_GAS_URL_HERE";
   });
   

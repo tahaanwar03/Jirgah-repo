@@ -124,12 +124,9 @@
     <button id="refresh-btn" aria-label="Sync data" title="Sync now" class="text-[#d4af37] hover:opacity-70 transition-opacity">
       <span class="material-symbols-outlined">sync</span>
     </button>
-    <div class="relative">
-      <button class="text-[#d4af37] hover:opacity-70 transition-opacity" aria-label="Notifications">
-        <span class="material-symbols-outlined">notifications</span>
-      </button>
-      <span id="notif-dot" class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full border-2 border-[#131313]" style="display:none;"></span>
-    </div>
+    <button id="toggle-open-btn" onclick="toggleRestaurantOpen()" class="px-4 py-2 bg-green-500/20 text-green-400 font-bold text-sm rounded-lg hover:bg-green-500/30 transition-all flex items-center gap-2">
+      <span class="material-symbols-outlined text-sm">lock_open</span> Open
+    </button>
   </div>
 </header>
 
@@ -194,13 +191,14 @@
         <input id="orders-search" type="text" placeholder="Search by ID, customer name or phone..."
           class="w-full bg-surface-container-highest border-none rounded-xl pl-12 pr-4 py-3 text-on-surface placeholder:text-outline focus:ring-1 focus:ring-primary transition-all font-body text-sm"/>
       </div>
-      <div class="lg:col-span-4 flex bg-surface-container-low p-1 rounded-xl" id="filter-tabs">
-        <button data-filter="All" class="filter-tab active flex-1 text-xs font-label font-bold py-2 rounded-lg">All</button>
-        <button data-filter="Pending" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Pending</button>
-        <button data-filter="Delivered" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Delivered</button>
-        <button data-filter="Cancelled" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg text-on-surface-variant hover:text-on-surface transition-colors">Cancelled</button>
+      <div class="lg:col-span-5 flex bg-surface-container-low p-1 rounded-xl" id="filter-tabs">
+        <button data-filter="All" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg transition-colors">All</button>
+        <button data-filter="Pending" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg transition-colors">Pending</button>
+        <button data-filter="Active" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg transition-colors">Active</button>
+        <button data-filter="Delivered" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg transition-colors">Delivered</button>
+        <button data-filter="Cancelled" class="filter-tab flex-1 text-xs font-label font-bold py-2 rounded-lg transition-colors">Cancelled</button>
       </div>
-      <div class="lg:col-span-3">
+      <div class="lg:col-span-2">
         <select id="sort-select" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-on-surface-variant focus:ring-1 focus:ring-primary font-body text-sm appearance-none cursor-pointer">
           <option value="newest">Newest First</option>
           <option value="oldest">Oldest First</option>
@@ -239,9 +237,19 @@
 
   <!-- ===== ANALYTICS VIEW ===== -->
   <section id="view-analytics" class="view-section p-8">
-    <div class="mb-8">
-      <h1 class="font-serif text-4xl font-bold text-on-background tracking-tight">Analytics</h1>
-      <p class="text-on-surface-variant text-sm mt-1">Performance metrics and order insights.</p>
+    <div class="mb-8 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+      <div>
+        <h1 class="font-serif text-4xl font-bold text-on-background tracking-tight">Analytics</h1>
+        <p class="text-on-surface-variant text-sm mt-1">Performance metrics and order insights.</p>
+      </div>
+      <div class="w-full sm:w-48">
+        <select id="analytics-timeframe" class="w-full bg-surface-container-low border-none rounded-xl px-4 py-3 text-on-surface-variant focus:ring-1 focus:ring-primary font-body text-sm appearance-none cursor-pointer">
+          <option value="today">Today</option>
+          <option value="week">This Week</option>
+          <option value="month" selected>This Month</option>
+          <option value="prevMonth">Previous Month</option>
+        </select>
+      </div>
     </div>
     <!-- Analytics KPIs -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8" id="analytics-kpi-grid">
@@ -415,7 +423,6 @@
 
 <script src="../config/config.js"></script>
 <script src="../website/menu.js"></script>
-<script src="sampledata.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
